@@ -163,11 +163,13 @@ fn scan_native_models(root: &Path) -> Result<Vec<ModelRecord>, String> {
     for i in 0..result.len() {
         if result[i].integrity_state != "snapshot_unchanged" { continue; }
         let Some(hash) = result[i].recorded_sha256.clone() else { continue; };
-        result[i].potential_duplicate_ids = result.iter().filter(|item|
-            item.id != result[i].id
+        let current_id = result[i].id.clone();
+        let candidates: Vec<String> = result.iter().filter(|item|
+            item.id != current_id
                 && item.integrity_state == "snapshot_unchanged"
-                && item.recorded_sha256.as_deref() == Some(&hash)
+                && item.recorded_sha256.as_deref() == Some(hash.as_str())
         ).map(|item| item.id.clone()).collect();
+        result[i].potential_duplicate_ids = candidates;
     }
     Ok(result)
 }
