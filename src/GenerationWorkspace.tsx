@@ -165,8 +165,8 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
             <strong>결과 파일 검증 완료</strong>
             <p>파일: {job.result.file_name}</p>
             <p>시드: {job.result.seed} · CLI 추론 및 모델 로딩 시간: {job.result.elapsed_seconds.toFixed(2)}초</p>
-            <p>PyTorch 피크 할당 메모리: {job.result.peak_allocated_bytes == null ? "미측정" : (job.result.peak_allocated_bytes / 1073741824).toFixed(2) + " GiB"}</p>
-            <p>PyTorch 피크 예약 메모리: {job.result.peak_reserved_bytes == null ? "미측정" : (job.result.peak_reserved_bytes / 1073741824).toFixed(2) + " GiB"}</p>
+            <p>PyTorch 피크 할당 메모리: {job.result.measurement !== "torch_cuda_allocator" || job.result.peak_allocated_bytes == null ? "미측정" : (job.result.peak_allocated_bytes / 1073741824).toFixed(2) + " GiB"}</p>
+            <p>PyTorch 피크 예약 메모리: {job.result.measurement !== "torch_cuda_allocator" || job.result.peak_reserved_bytes == null ? "미측정" : (job.result.peak_reserved_bytes / 1073741824).toFixed(2) + " GiB"}</p>
             <p>측정 상태: {job.result.measurement === "torch_cuda_allocator" ? "PyTorch CUDA 할당자 측정" : "GPU 할당자 측정 불가"}</p>
             <p className="generation-hash">PNG SHA-256: <code>{job.result.png_sha256}</code></p>
             <p>PNG 시그니처와 체크섬을 확인했습니다. GPU 전체 VRAM 사용량·그림 품질·프롬프트 준수는 검증하지 않았습니다.</p>
