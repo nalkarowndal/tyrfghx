@@ -3,7 +3,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import type { ModelRecord } from "./api";
 import { DEFAULT_IMAGE_SETTINGS, preflightImageSettings, type ImageSettings } from "./generationWorkspacePlan";
 import { getNativeGenerationPreviews, type GenerationPreview } from "./nativeGenerationGallery";
-import { cancelLocalGeneration, getGenerationJobStatus, startLocalGeneration, type JobSnapshot } from "./nativeGenerationJobs";
+import { cancelLocalGeneration, getGenerationJobStatus, isLocalGenerationSupported, startLocalGeneration, type JobSnapshot } from "./nativeGenerationJobs";
 
 export default function GenerationWorkspace({ models, loadingModels, modelsError, onRefreshModels }: {
   models: ModelRecord[]; loadingModels: boolean; modelsError: string; onRefreshModels: () => void;
@@ -19,6 +19,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   const [jobLoading, setJobLoading] = useState(false);
   const [jobError, setJobError] = useState("");
   const [jobStatusLoaded, setJobStatusLoaded] = useState(false);
+  const [runnerSupported, setRunnerSupported] = useState(false);
   const desktop = isTauri();
   const eligibleModels = useMemo(() => models.filter(x => x.category === "checkpoint"), [models]);
   const assessment = preflightImageSettings(settings, models);
@@ -43,6 +44,9 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   useEffect(() => {
     if (!desktop) return;
     let active = true;
+    isLocalGenerationSupported()
+      .then(value => { if (active) setRunnerSupported(value); })
+      .catch(reason => { if (active) setJobError(String(reason)); });
     getGenerationJobStatus()
       .then(value => { if (active) setJob(value); })
       .catch(reason => { if (active) setJobError(String(reason)); })
@@ -62,7 +66,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   }, [desktop, job?.phase]);
 
   async function startGeneration() {
-    if (!desktop || !assessment.ok || !consent || jobLoading ||
+    if (!desktop || !runnerSupported || !assessment.ok || !consent || jobLoading ||
         !jobStatusLoaded || job?.phase === "running" || job?.phase === "cancelling") return;
     setJobLoading(true);
     setJobError("");
@@ -91,7 +95,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   }
 
   const jobBusy = job?.phase === "running" || job?.phase === "cancelling";
-  const canRun = desktop && assessment.ok && consent && jobStatusLoaded && !jobBusy && !jobLoading;
+  const canRun = desktop && runnerSupported && assessment.ok && consent && jobStatusLoaded && !jobBusy && !jobLoading;
   return <div className="generation-layout">
     <section className="generation-panel" aria-label="이미지 생성 설정">
       <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-3 · Windows 개발판 작업 실행</span></div>
@@ -142,7 +146,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
           </button>
           <button type="button" onClick={stopGeneration} disabled={job?.phase !== "running" || jobLoading}>생성 취소</button>
         </div>
-        {!desktop && <p className="muted">브라우저에서는 직접 GPU 실행을 지원하지 않습니다. 별도 CLI를 사용하세요.</p>}
+        {!runnerSupported && <p className="muted">GPU 직접 실행은 Windows Tauri 디버그 개발판에서만 허용됩니다. 브라우저·배포판에서는 CLI를 별도로 사용하세요.</p>}
         {jobError && <p role="alert" className="model-error">작업 오류: {jobError}</p>}
         {desktop && <div role="status" className="compatibility-result">
           <strong>작업 상태: {job?.phase ?? (jobStatusLoaded ? "idle" : "확인 중")}</strong>
