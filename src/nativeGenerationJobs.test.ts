@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { DEFAULT_IMAGE_SETTINGS } from "./generationWorkspacePlan";
-import { startLocalGeneration, getGenerationJobStatus, cancelLocalGeneration } from "./nativeGenerationJobs";
+import { startLocalGeneration, getGenerationJobStatus, cancelLocalGeneration, isLocalGenerationSupported } from "./nativeGenerationJobs";
 
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: vi.fn(), invoke: vi.fn() }));
 afterEach(() => vi.resetAllMocks());
@@ -40,4 +40,11 @@ describe("M3-3 local generation permissions", () => {
     await expect(cancelLocalGeneration(-1)).rejects.toThrow("ID");
     expect(invoke).toHaveBeenCalledTimes(2);
   });
+});
+
+it("reads the native release/dev feature gate instead of assuming all Tauri builds run GPU jobs", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  vi.mocked(invoke).mockResolvedValue(false);
+  await expect(isLocalGenerationSupported()).resolves.toBe(false);
+  expect(invoke).toHaveBeenCalledExactlyOnceWith("local_generation_supported");
 });
