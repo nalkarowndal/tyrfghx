@@ -34,6 +34,10 @@ It may initialize the CUDA driver while querying device information.
   grace period for receiving complete JSON. All stderr is discarded.
 - Rust decodes a version-1 JSON schema with bounded, allowlisted fields and
   rejects malformed/unknown data; raw CLI output cannot be injected into UI.
+- Multiple concurrent diagnostic requests are blocked by a scoped
+  single-flight reservation; generation cannot start while a diagnostic is
+  active and a diagnostic cannot start while generation is running.
+  The reservation is released even if the worker encounters an error.
 - The check does not upload GPU reports, download resources, send telemetry
   or grant a generic filesystem/browser permission.
 
@@ -53,7 +57,7 @@ It may initialize the CUDA driver while querying device information.
 
 ## Automated checks and remaining uncertainty
 
-Rust unit tests cover JSON schema parsing, oversized/unknown data rejection,
+Rust unit tests cover exclusive diagnostic reservation, JSON schema parsing, oversized/unknown data rejection,
 device-memory bounds, and missing fixed local Python environment. TypeScript
 Vitest checks the no-argument IPC contract, browser rejection and truthful
 status messaging.
