@@ -2,6 +2,7 @@ mod model_import;
 mod model_catalog;
 mod generation_gallery;
 mod generation_jobs;
+mod windows_process_job;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
