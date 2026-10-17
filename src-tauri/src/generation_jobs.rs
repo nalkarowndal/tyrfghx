@@ -11,9 +11,12 @@ use std::{
         Arc, Mutex,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, State};
+
+const MAX_JOB_RUNTIME: Duration = Duration::from_secs(30 * 60);
+const MAX_STDERR_TAIL: usize = 8192;
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -34,6 +37,8 @@ pub struct JobSnapshot {
     pub job_id: u64,
     pub phase: String,
     pub message: String,
+    pub elapsed_seconds: u64,
+    pub time_limit_seconds: u64,
 }
 
 struct RunningJob {
@@ -118,25 +123,32 @@ fn validate_local_files(repo: &Path, model_root: &Path, r: &GenerateRequest) -> 
     Ok(python)
 }
 
-/// Bound captured subprocess stderr memory. Drain the pipe to prevent deadlocks.
-fn consume_tail(mut stream: impl Read) -> String {
-    let mut tail = Vec::new();
-    let mut block = [0u8; 4096];
+/// Read a bounded tail; never join this thread in the worker, because
+/// inherited stderr handles may remain open in child processes.
+fn consume_tail(mut stream: impl Read, shared: Arc<Mutex<Vec<u8>>>) {
+    let mut buf = [0_u8; 4096];
     loop {
-        match stream.read(&mut block) {
+        match stream.read(&mut buf) {
             Ok(0) | Err(_) => break,
-            Ok(count) => {
-                tail.extend_from_slice(&block[..count]);
-                if tail.len() > 8192 {
-                    tail.drain(..tail.len() - 8192);
-                }
+            Ok(len) => {
+                if let Ok(mut tail) = shared.lock() {
+                    tail.extend_from_slice(&buf[..len]);
+                    let extra = tail.len().saturating_sub(MAX_STDERR_TAIL);
+                    if extra != 0 { tail.drain(..extra); }
+                } else { break; }
             }
         }
     }
-    String::from_utf8_lossy(&tail).to_string()
 }
 
-fn outcome_message(ok: bool, stderr: &str, code: Option<i32>, cancelled: bool) -> (String, String) {
+fn is_over_limit(start: Instant, limit: Duration) -> bool {
+    start.elapsed() >= limit
+}
+
+fn outcome_message(ok: bool, stderr: &str, code: Option<i32>, cancelled: bool, timed_out: bool) -> (String, String) {
+    if timed_out {
+        return ("timed_out".into(), "최대 실행 시간 30분을 초과해 종료되었습니다. 설정과 GPU 환경을 확인하세요.".into());
+    }
     if cancelled { return ("cancelled".into(), "사용자가 생성을 취소했습니다.".into()); }
     if ok {
         return ("succeeded".into(), "CLI 프로세스가 성공 종료했습니다. 결과 갤러리를 새로고침하세요.".into());
@@ -205,12 +217,16 @@ pub async fn start_local_generation(
         .spawn()
         .map_err(|e| format!("Could not start the fixed Python interpreter: {e}"))?;
     let stderr = child.stderr.take().ok_or("Cannot capture subprocess diagnostics")?;
-    let reader = thread::spawn(move || consume_tail(stderr));
+    let stderr_tail = Arc::new(Mutex::new(Vec::new()));
+    let reader_tail = Arc::clone(&stderr_tail);
+    thread::spawn(move || consume_tail(stderr, reader_tail));
     let id = state.next_id.fetch_add(1, Ordering::SeqCst) + 1;
     let snapshot = Arc::new(Mutex::new(JobSnapshot {
         job_id: id,
         phase: "running".into(),
-        message: "로컬 GPU 생성 프로세스 실행 중 (단계별 진행률은 아직 제공되지 않습니다).".into(),
+        message: "로컬 GPU 생성 중 (최대 30분, 단계별 진행률 미제공).".into(),
+        elapsed_seconds: 0,
+        time_limit_seconds: MAX_JOB_RUNTIME.as_secs(),
     }));
     let process = Arc::new(Mutex::new(child));
     let cancelling = Arc::new(AtomicBool::new(false));
@@ -218,6 +234,8 @@ pub async fn start_local_generation(
     let worker_snapshot = Arc::clone(&snapshot);
     let worker_cancelled = Arc::clone(&cancelling);
     thread::spawn(move || {
+        let started = Instant::now();
+        let mut timed_out = false;
         let exit_status = loop {
             let result = match worker_process.lock() {
                 Ok(mut child) => child.try_wait(),
@@ -226,17 +244,39 @@ pub async fn start_local_generation(
             match result {
                 Ok(Some(exit)) => break Some(exit),
                 Err(_) => break None,
-                Ok(None) => thread::sleep(Duration::from_millis(150)),
+                Ok(None) => {
+                    if is_over_limit(started, MAX_JOB_RUNTIME) && !timed_out {
+                        timed_out = true;
+                        if let Ok(mut child) = worker_process.lock() {
+                            let _ = child.kill();
+                        }
+                        if let Ok(mut status) = worker_snapshot.lock() {
+                            status.phase = "cancelling".into();
+                            status.message = "30분 제한에 도달하여 종료를 요청했습니다.".into();
+                        }
+                    }
+                    if let Ok(mut status) = worker_snapshot.lock() {
+                        status.elapsed_seconds = started.elapsed().as_secs();
+                    }
+                    thread::sleep(Duration::from_millis(150));
+                }
             }
         };
-        let stderr = reader.join().unwrap_or_default();
+        // Short grace period for stderr classification. Do not join the pipe
+        // reader, which could block forever if a descendant holds the pipe.
+        thread::sleep(Duration::from_millis(80));
+        let stderr = stderr_tail.lock()
+            .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+            .unwrap_or_default();
         let (phase, message) = outcome_message(
             exit_status.as_ref().is_some_and(|s| s.success()),
             &stderr,
             exit_status.as_ref().and_then(|s| s.code()),
             worker_cancelled.load(Ordering::SeqCst),
+            timed_out,
         );
         if let Ok(mut status) = worker_snapshot.lock() {
+            status.elapsed_seconds = started.elapsed().as_secs();
             status.phase = phase;
             status.message = message;
         }
@@ -250,7 +290,10 @@ pub async fn start_local_generation(
 pub async fn generation_job_status(state: State<'_, JobManager>) -> Result<JobSnapshot, String> {
     let guard = state.current.lock().map_err(|_| "Job manager lock error")?;
     let Some(job) = guard.as_ref() else {
-        return Ok(JobSnapshot { job_id: 0, phase: "idle".into(), message: "대기 중".into() });
+        return Ok(JobSnapshot {
+            job_id: 0, phase: "idle".into(), message: "대기 중".into(),
+            elapsed_seconds: 0, time_limit_seconds: MAX_JOB_RUNTIME.as_secs(),
+        });
     };
     job.snapshot.lock().map(|s| s.clone()).map_err(|_| "Job state lock error".into())
 }
@@ -293,16 +336,27 @@ mod tests {
         assert!(validate_request(&bad).is_err());
     }
     #[test] fn distinguishes_oom_from_other_errors() {
-        assert_eq!(outcome_message(false, "CUDA out of memory", Some(1), false).0, "failed");
-        assert!(outcome_message(false, "CUDA out of memory", Some(1), false).1.contains("VRAM"));
-        assert_eq!(outcome_message(false, "", Some(1), true).0, "cancelled");
-        assert_eq!(outcome_message(true, "", Some(0), false).0, "succeeded");
+        assert_eq!(outcome_message(false, "CUDA out of memory", Some(1), false, false).0, "failed");
+        assert!(outcome_message(false, "CUDA out of memory", Some(1), false, false).1.contains("VRAM"));
+        assert_eq!(outcome_message(false, "", Some(1), true, false).0, "cancelled");
+        assert_eq!(outcome_message(true, "", Some(0), false, false).0, "succeeded");
     }
     #[test] fn cannot_start_without_fixed_interpreter_and_config() {
         let dir = tempfile::tempdir().unwrap();
         assert!(validate_local_files(dir.path(), &dir.path().join("models"), &request()).is_err());
     }
     #[test] fn drain_stderr_has_bounded_memory() {
-        assert!(consume_tail(std::io::Cursor::new(vec![b'X';50000])).len()<=8192);
+        let shared = Arc::new(Mutex::new(Vec::new()));
+        consume_tail(std::io::Cursor::new(vec![b'X'; 50000]), Arc::clone(&shared));
+        assert_eq!(shared.lock().unwrap().len(), MAX_STDERR_TAIL);
     }
+    #[test] fn runtime_limit_and_timeout_result() {
+        let earlier = Instant::now() - Duration::from_secs(5);
+        assert!(is_over_limit(earlier, Duration::from_secs(3)));
+        assert!(!is_over_limit(earlier, Duration::from_secs(10)));
+        let (phase, message) = outcome_message(false, "CUDA out of memory", None, false, true);
+        assert_eq!(phase, "timed_out");
+        assert!(message.contains("30분"));
+    }
+
 }

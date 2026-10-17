@@ -112,3 +112,29 @@ Manual Windows acceptance for M3-3 should include:
    model/VRAM, measured runtime/peak VRAM and exact output checksum.
 
 DO NOT mark live image generation as device-tested until these tests pass.
+
+## M3-4 — bounded job lifetime and diagnostic collection
+
+The Windows debug-only runner now enforces a **30-minute wall-clock
+timeout** per job (1800 seconds), providing status fields
+`elapsed_seconds` and `time_limit_seconds`. These describe wall-clock
+time, **not** diffusion-step progress or a completion percentage.
+The UI displays both values, and a successfully exited job causes a
+read-only gallery refresh.
+
+On timeout Rust attempts to terminate the immediate Python child, reports
+`cancelling` while termination is pending, then reports `timed_out`
+once the child exits. The previous stderr-draining thread is intentionally
+**not joined** in the job-monitor thread; a descendant inheriting the pipe
+can no longer indefinitely prevent the runner from returning a terminal
+status after the direct Python child has exited. Diagnostic data in shared
+memory is limited to the most recent 8192 bytes and is only used to map
+known failures to short Korean UI messages.
+
+Safety caveats: Windows `Child::kill` affects only the immediate child and
+is not complete process-tree isolation. On process termination failure the
+job may remain in cancelling until it exits. A process-tree/Job Object
+implementation and a target-device test are required before shipping a
+production runner. The 30-minute watchdog itself does not guarantee all
+descendants have stopped or GPU memory has been released. No model, CUDA
+GPU or inference process is run in CI.

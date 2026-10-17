@@ -48,3 +48,15 @@ it("reads the native release/dev feature gate instead of assuming all Tauri buil
   await expect(isLocalGenerationSupported()).resolves.toBe(false);
   expect(invoke).toHaveBeenCalledExactlyOnceWith("local_generation_supported");
 });
+
+it("shows a timed-out terminal phase without treating it as success", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  vi.mocked(invoke).mockResolvedValue({
+    job_id: 12, phase: "timed_out",
+    message: "Maximum runtime exceeded",
+    elapsed_seconds: 1800, time_limit_seconds: 1800,
+  });
+  const state = await getGenerationJobStatus();
+  expect(state.phase).toBe("timed_out");
+  expect(state.elapsed_seconds).toBe(state.time_limit_seconds);
+});
