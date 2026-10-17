@@ -455,10 +455,10 @@ mod tests {
         assert_eq!(shared.lock().unwrap().len(), MAX_STDERR_TAIL);
     }
     #[test] fn capped_stdout_reader_drains_all_data_and_marks_oversize() {
-        let payload = vec![b'X'; super::generation_result::MAX_OUTPUT_JSON + 99_000];
+        let payload = vec![b'X'; crate::generation_result::MAX_OUTPUT_JSON + 99_000];
         let mut reader = std::io::Cursor::new(&payload);
         let stored = consume_bounded_stdout(&mut reader).unwrap();
-        assert_eq!(stored.len(), super::generation_result::MAX_OUTPUT_JSON + 1);
+        assert_eq!(stored.len(), crate::generation_result::MAX_OUTPUT_JSON + 1);
         assert_eq!(reader.position() as usize, payload.len());
     }
 
