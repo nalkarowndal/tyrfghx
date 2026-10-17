@@ -6,8 +6,10 @@ allocates GPU memory. Use --execute deliberately on the owner's machine.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
+import time
 import os
 import uuid
 from dataclasses import asdict, dataclass
@@ -148,6 +150,38 @@ def run_generation(settings: GenerationSettings, *, model_root: Path = MODEL_ROO
     return save_image(image, output_root)
 
 
+def summarize_runtime_metrics(image_path: Path, elapsed_seconds: float, cuda_module) -> dict:
+    """Summarize observed runtime. Allocator peak excludes other GPU users.
+
+    This helper is only used for explicitly executed local inference and is
+    testable with a mock cuda_module without initializing a real GPU.
+    """
+    digest = hashlib.sha256()
+    with image_path.open("rb") as output:
+        while chunk := output.read(1024 * 1024):
+            digest.update(chunk)
+    metrics = {
+        "measurement_type": "real_cuda_allocator_if_available",
+        "elapsed_seconds": round(max(0.0, float(elapsed_seconds)), 3),
+        "output_png_sha256": digest.hexdigest(),
+        "gpu_peak_allocated_bytes": None,
+        "gpu_peak_reserved_bytes": None,
+        "gpu_memory_measurement": "unavailable",
+        "caveat": "PyTorch allocator peak is not total VRAM usage; other GPU processes and driver allocations are excluded.",
+    }
+    if cuda_module is not None:
+        try:
+            if cuda_module.is_available():
+                cuda_module.synchronize()
+                metrics["gpu_peak_allocated_bytes"] = int(cuda_module.max_memory_allocated())
+                metrics["gpu_peak_reserved_bytes"] = int(cuda_module.max_memory_reserved())
+                metrics["gpu_memory_measurement"] = "torch_cuda_allocator"
+        except Exception:
+            # Telemetry failure must not reclassify a saved output as failed.
+            metrics["gpu_memory_measurement"] = "measurement_failed"
+    return metrics
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="M3-1 offline SDXL preview; dry run by default.")
     parser.add_argument("--checkpoint", required=True, help="E.g. checkpoints/model.safetensors")
@@ -159,7 +193,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--guidance", type=float, default=7.0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--execute", action="store_true", help="Actually load checkpoint and run CUDA inference.")
+    parser.add_argument("--metrics", action="store_true", help="After --execute, print wall-time, CUDA allocator peak and PNG SHA-256. Not total VRAM.")
     args = parser.parse_args(argv)
+    if args.metrics and not args.execute:
+        parser.error("--metrics requires --execute; preflight never loads the CUDA runtime")
     try:
         settings = GenerationSettings(
             checkpoint_id=args.checkpoint, prompt=args.prompt,
@@ -174,9 +211,25 @@ def main(argv: list[str] | None = None) -> int:
                 "warning": "This does not test model loading, GPU memory, or generation.",
             }, ensure_ascii=False, indent=2))
             return 0
+        cuda_for_metrics = None
+        if args.metrics:
+            # CUDA interaction is permitted only after the explicit --execute.
+            import torch as telemetry_torch
+            cuda_for_metrics = telemetry_torch.cuda
+            try:
+                if cuda_for_metrics.is_available():
+                    cuda_for_metrics.reset_peak_memory_stats()
+            except Exception:
+                cuda_for_metrics = None
+        start = time.perf_counter()
         result = run_generation(settings)
-        print(json.dumps({"mode": "generated_unverified", "output": str(result),
-                          "seed": settings.seed}, ensure_ascii=False))
+        response = {"mode": "generated_unverified", "output": str(result),
+                    "seed": settings.seed}
+        if args.metrics:
+            response["metrics"] = summarize_runtime_metrics(
+                result, time.perf_counter() - start, cuda_for_metrics
+            )
+        print(json.dumps(response, ensure_ascii=False))
         return 0
     except (ValueError, OSError, RuntimeError, ImportError) as exc:
         parser.exit(2, f"aiimage M3-1: {exc}\n")

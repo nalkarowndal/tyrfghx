@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-5 (Windows process-group supervised debug-only inference).**
+> **Current milestone: M3-6 (offline CUDA readiness checks and optional inference measurement).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,25 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## GPU hardware readiness (M3-6)
+
+To inspect a locally installed CUDA-capable PyTorch environment **without loading a
+checkpoint or running diffusion**, execute:
+
+```powershell
+.\.venv\Scripts\python.exe backend\gpu_diagnostics.py
+```
+
+The JSON result identifies the PyTorch CUDA build, GPU name and VRAM total/free
+at inspection. This can initialize a CUDA context, but it does not establish
+SDXL compatibility or benchmark image quality. When explicitly generating a
+real image via the CLI, add `--metrics` alongside `--execute` to print
+elapsed time, observed torch CUDA allocator peaks, and the output PNG SHA-256.
+These metrics are **not total VRAM use** and are not collected remotely.
+
+See [M3 GPU hardware QA](docs/M3_GPU_HARDWARE_QA.md) for local test
+acceptance criteria. CI uses only mocks; RTX 2060 SUPER real-device QA is pending.
 
 ## Experimental SDXL image generation (M3-1)
 
@@ -109,6 +128,7 @@ Model files and local integrity registries are ignored by Git.
 
 - [M2 model catalog, metadata, import and integrity](docs/M2_MODEL_CATALOG.md)
 - [M3 offline SDXL CLI and hardware-validation guide](docs/M3_LOCAL_INFERENCE.md)
+- [M3-6 CUDA readiness and target hardware QA](docs/M3_GPU_HARDWARE_QA.md)
 - [M1 developer environment](docs/DEVELOPMENT.md)
 - Backend tests: `cd backend && python -m pytest -q`
 - Frontend: `npm run build && npm test`
