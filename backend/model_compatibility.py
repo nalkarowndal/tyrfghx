@@ -19,7 +19,6 @@ class CompatibilityReport(BaseModel):
 def evaluate_pair(records: list[ModelRecord], checkpoint_id: str, lora_id: str) -> CompatibilityReport:
     by_id = {item.id: item for item in records}
     checkpoint, lora = by_id.get(checkpoint_id), by_id.get(lora_id)
-    status: CompatibilityReport.model_fields["status"].annotation
     if not checkpoint or not lora:
         status, summary = "not_found", "선택된 모델 파일이 현재 목록에 없습니다."
     elif checkpoint.category != "checkpoint" or lora.category != "lora":
