@@ -25,7 +25,7 @@ Optionally launch native window after Rust setup: `npm run tauri dev`.
 - `npm run build`
 - `npm test`
 - Real RTX 2060 SUPER GPU/VRAM testing: **not implemented**
-- Windows Tauri build and runtime verification: **pending**
+- Windows Tauri **Rust compile/unit tests**: implemented in CI. Interactive runtime and GUI verification: **pending**
 
 API binds exclusively to loopback. Browser CORS is restricted to local development/Tauri origins. Later backend endpoints must implement trusted-origin and request authorization checks to protect local filesystem and model operations.
 
