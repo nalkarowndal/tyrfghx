@@ -130,7 +130,7 @@ fn scan_native_models(root: &Path) -> Result<Vec<ModelRecord>, String> {
                 else if inferred.is_some() { "header" } else { "unknown" };
             let family = manual.or(inferred);
 
-            let snapshot = &integrity["models"][&id];
+            let snapshot = &integrity["models"][id.as_str()];
             let digest = metadata_str(snapshot, "sha256", 64)
                 .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()));
             let (state, hash) = if ext != "safetensors" || digest.is_none() {
