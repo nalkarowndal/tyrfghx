@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-6 (offline CUDA readiness checks and optional inference measurement).**
+> **Current milestone: M3-7 (Tauri desktop GPU readiness panel).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,20 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Desktop GPU readiness panel (M3-7)
+
+The **이미지 생성** (Image Generation) workspace now includes a
+**GPU 진단 실행** control for Windows Tauri debug builds. This invokes only
+the fixed local `backend/gpu_diagnostics.py` inside the repository's
+`.venv/Scripts/python.exe`, without a frontend-provided path or shell.
+
+The 25-second bounded Windows Job Object command returns a validated,
+size-limited report showing CUDA/PyTorch status and current VRAM. It is
+disabled in browsers, release builds, and while image generation is active.
+It cannot prove that an SDXL model will load or generate a valid image.
+
+See [M3-7 desktop GPU diagnostics](docs/M3_DESKTOP_GPU_DIAGNOSTICS.md).
 
 ## GPU hardware readiness (M3-6)
 
