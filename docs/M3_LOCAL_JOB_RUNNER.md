@@ -138,3 +138,18 @@ implementation and a target-device test are required before shipping a
 production runner. The 30-minute watchdog itself does not guarantee all
 descendants have stopped or GPU memory has been released. No model, CUDA
 GPU or inference process is run in CI.
+
+## M3-5 process-group supervision update
+
+The earlier `Child::kill` limitation is now mitigated for normal Windows
+subprocess inheritance using a Win32 **Job Object**. The launcher creates
+Python suspended, assigns it to a group configured with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, then resumes it. Job setup failure
+**fails closed**, with no ungrouped fallback. Explicit cancel, watchdog
+expiry, post-child-exit cleanup and app shutdown attempt to terminate the
+whole job. See [M3-5 technical documentation](M3_WINDOWS_PROCESS_GROUP.md).
+
+This still does not cover all possible process-spawning mechanisms, does not
+guarantee OS/GPU driver VRAM reclamation, and is not a real RTX 2060 SUPER
+hardware acceptance test. The production executable remains blocked from
+starting GPU jobs.
