@@ -15,7 +15,9 @@ as evidence that an image file was successfully saved.
 3. Rust checks the allowlisted JSON output, seed, canonical output path,
    filename, non-symlink file, byte size, PNG signature, and independently
    calculates the file's SHA-256.
-4. Rust decodes PNG pixel data with `png::Decoder::new_with_limits`. A PNG
+4. Rust validates PNG chunk lengths, ordering and CRCs all the way through
+   the final IEND chunk, then decodes pixel data with
+   `png::Decoder::new_with_limits`. A PNG
    header alone or correctly hashed nonsense bytes **do not** count as a
    successfully saved image.
 5. The PNG must be non-animated and have positive dimensions no larger
@@ -25,7 +27,7 @@ as evidence that an image file was successfully saved.
 6. Successful verification returns only the filename, hash, actual
    dimensions, seed, timing, and optional CUDA allocator peak. Raw
    stdout, prompts, and absolute output path are not sent to the webview.
-7. The gallery uses the same decoder check before producing a limited
+7. The gallery uses the same full-chunk CRC and decoder check before producing a limited
    read-only base64 preview. Malformed files are ignored.
 
 ## Why 8 MiB?
@@ -65,3 +67,13 @@ References:
 - [PNG Specification Third Edition](https://www.w3.org/TR/png-3/)
 - [Rust png decoder reference](https://docs.rs/png/latest/png/struct.Decoder.html)
 - [M3-8 telemetry](M3_VERIFIED_GENERATION_METRICS.md)
+
+## CI-discovered regression and resolution
+
+The first M3-9 Windows Rust CI run compiled but failed one gallery test:
+modifying the trailing PNG IEND chunk did not necessarily stop the
+high-level decoder from yielding the image frame. M3-9 now performs a
+bounded pass over **every chunk**, checking lengths, the IHDR–IDAT–IEND
+structure and stored CRC32 values, including IEND, before decoding pixels.
+This detects corruption in the trailing IEND chunk and other chunks that
+could escape a frame-only decoder check. No test uses real model weights.
