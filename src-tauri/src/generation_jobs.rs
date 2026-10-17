@@ -66,7 +66,7 @@ fn validate_request(r: &GenerateRequest) -> Result<(), String> {
     let group = parts.next().unwrap_or("");
     let file = parts.next().unwrap_or("");
     if group != "checkpoints" || parts.next().is_some()
-        || file.is_empty() || file.contains(['\\', ':'])
+        || file.is_empty() || file.contains('\\') || file.contains(':')
         || !file.to_ascii_lowercase().ends_with(".safetensors")
         || file == "." || file == ".."
     {
@@ -103,7 +103,7 @@ fn validate_local_files(repo: &Path, model_root: &Path, r: &GenerateRequest) -> 
         || config_file.is_symlink() || !config_file.is_file() {
         return Err("Local SDXL configuration is missing or unsafe".into());
     }
-    if repo.join(".venv").is_symlink() || python.is_symlink() || !python.is_file()
+    if repo.join(".venv").is_symlink() || repo.join(".venv/Scripts").is_symlink() || repo.join("backend").is_symlink() || python.is_symlink() || !python.is_file()
         || script.is_symlink() || !script.is_file() {
         return Err("Local .venv/Scripts/python.exe or backend CLI missing; set up Python 3.12 first".into());
     }
@@ -177,7 +177,7 @@ pub async fn start_local_generation(
     }
 
     let mut child = Command::new(python)
-        .arg("-I")
+        .arg("-s")
         .arg(repo.join("backend").join("generate_sdxl.py"))
         .args(["--checkpoint", &request.checkpoint_id,
                "--prompt", &request.prompt,
