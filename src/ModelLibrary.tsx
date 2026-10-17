@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { getCompatibility, type CompatibilityReport, type ModelRecord } from "./api";
 import { isTauri } from "@tauri-apps/api/core";
 import { importModelFromNativeDialog, type ImportCategory } from "./nativeModelImport";
+import { compareNativeModels } from "./nativeModelCatalog";
 
 const categories: Record<ModelRecord["category"], string> = {
   checkpoint: "체크포인트", lora: "LoRA", vae: "VAE",
@@ -37,7 +38,7 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
     try {
       const result = await importModelFromNativeDialog(importCategory);
       if (result !== null) {
-        setImportMessage(`모델 가져오기 완료: ${result.model_id}. 등록 당시 SHA-256: ${result.sha256}. 백엔드 목록을 새로고침합니다.`);
+        setImportMessage(`모델 가져오기 완료: ${result.model_id}. 등록 당시 SHA-256: ${result.sha256}. Tauri 모델 목록을 새로고침합니다.`);
         onRefresh();
       } else {
         setImportMessage("파일 선택을 취소했습니다. 변경사항이 없습니다.");
@@ -66,7 +67,9 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
     setCompareError("");
     setReport(null);
     try {
-      const result = await getCompatibility(checkpointId, loraId);
+      const result = desktopApp
+        ? compareNativeModels(items, checkpointId, loraId)
+        : await getCompatibility(checkpointId, loraId);
       setReport(result);
     } catch (reason) {
       setCompareError(String(reason));
@@ -103,7 +106,7 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
       {!desktopApp && <p className="muted">브라우저에서는 파일 가져오기 버튼을 사용할 수 없습니다. Tauri 데스크톱 앱에서 실행하세요.</p>}
       {importMessage && <p role="status" className="compatibility-result">{importMessage}</p>}
       {importError && <p role="alert" className="model-error">파일 가져오기 실패: {importError}</p>}
-      <p className="muted">개발 중에는 기존 models 폴더를 사용합니다. 배포판은 별도 앱 데이터 폴더를 사용하며, Python 백엔드 자동 실행과 폴더 연결은 아직 구현되지 않았습니다.</p>
+      <p className="muted">개발 중에는 기존 models 폴더를 사용합니다. 배포판은 앱 전용 데이터 폴더를 사용하며, Tauri의 모델 목록과 계열 비교는 Python 없이 동작합니다. 이미지 생성용 Python 백엔드 자동 실행은 아직 구현되지 않았습니다.</p>
     </section>
     <div className="model-help">
       <strong>모델 추가 및 정보 등록</strong>
