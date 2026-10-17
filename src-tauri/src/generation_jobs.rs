@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     io::Read,
+    sync::mpsc,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
@@ -39,6 +40,7 @@ pub struct JobSnapshot {
     pub message: String,
     pub elapsed_seconds: u64,
     pub time_limit_seconds: u64,
+    pub result: Option<super::generation_result::VerifiedResult>,
 }
 
 struct RunningJob {
@@ -235,7 +237,7 @@ pub async fn start_local_generation(
                "--steps", &request.steps.to_string(),
                "--guidance", &request.guidance.to_string(),
                "--seed", &request.seed.to_string(),
-               "--execute"])
+               "--execute", "--metrics"])
         .current_dir(&repo)
         .env("HF_HUB_OFFLINE", "1")
         .env("HF_HUB_DISABLE_TELEMETRY", "1")
@@ -243,7 +245,7 @@ pub async fn start_local_generation(
         .env_remove("PYTHONPATH")
         .env_remove("PYTHONHOME")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     super::windows_process_job::prepare_command(&mut command);
     let mut child = command.spawn()
@@ -257,6 +259,17 @@ pub async fn start_local_generation(
             return Err(error);
         }
     };
+    // Consume stdout concurrently with stderr to avoid pipe-buffer deadlock;
+    // cap memory before the subprocess can write more than the limit.
+    let stdout = child.stdout.take().ok_or("Cannot capture inference metrics")?;
+    let (result_sender, result_receiver) = mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let response = stdout.take((super::generation_result::MAX_OUTPUT_JSON + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map(|_| bytes);
+        let _ = result_sender.send(response);
+    });
     let stderr = child.stderr.take().ok_or("Cannot capture subprocess diagnostics")?;
     let stderr_tail = Arc::new(Mutex::new(Vec::new()));
     let reader_tail = Arc::clone(&stderr_tail);
@@ -268,6 +281,7 @@ pub async fn start_local_generation(
         message: "로컬 GPU 생성 중 (최대 30분, 단계별 진행률 미제공).".into(),
         elapsed_seconds: 0,
         time_limit_seconds: MAX_JOB_RUNTIME.as_secs(),
+        result: None,
     }));
     let process = Arc::new(Mutex::new(child));
     let cancelling = Arc::new(AtomicBool::new(false));
@@ -275,6 +289,8 @@ pub async fn start_local_generation(
     let worker_snapshot = Arc::clone(&snapshot);
     let worker_cancelled = Arc::clone(&cancelling);
     let worker_group = Arc::clone(&group);
+    let output_root = repo.join("outputs");
+    let expected_seed = request.seed;
     thread::spawn(move || {
         let started = Instant::now();
         let mut timed_out = false;
@@ -327,10 +343,30 @@ pub async fn start_local_generation(
             phase = "failed".into();
             message = "Python은 종료됐으나 하위 프로세스 정리를 확인하지 못했습니다.".into();
         }
+        let mut verified = None;
+        if phase == "succeeded" {
+            let parsed = result_receiver.recv_timeout(Duration::from_secs(2))
+                .map_err(|_| "생성 결과 수신 시간이 초과됐습니다.".to_string())
+                .and_then(|response| response.map_err(|_| "생성 결과 읽기에 실패했습니다.".into()))
+                .and_then(|bytes| super::generation_result::validate_report(
+                    &bytes, &output_root, expected_seed
+                ));
+            match parsed {
+                Ok(result) => {
+                    verified = Some(result);
+                    message = "Python 실행이 종료됐고 결과 PNG 시그니처·SHA-256 검증이 통과했습니다. 화질·CUDA 장치 동작 검증과는 별개입니다.".into();
+                }
+                Err(problem) => {
+                    phase = "failed".into();
+                    message = format!("생성 프로세스는 성공 종료했지만 결과 검증에 실패했습니다: {problem}");
+                }
+            }
+        }
         if let Ok(mut status) = worker_snapshot.lock() {
             status.elapsed_seconds = started.elapsed().as_secs();
             status.phase = phase;
             status.message = message;
+            status.result = verified;
         }
     });
     let reply = snapshot.lock().map_err(|_| "Job state lock error")?.clone();
@@ -345,6 +381,7 @@ pub async fn generation_job_status(state: State<'_, JobManager>) -> Result<JobSn
         return Ok(JobSnapshot {
             job_id: 0, phase: "idle".into(), message: "대기 중".into(),
             elapsed_seconds: 0, time_limit_seconds: MAX_JOB_RUNTIME.as_secs(),
+            result: None,
         });
     };
     job.snapshot.lock().map(|s| s.clone()).map_err(|_| "Job state lock error".into())
