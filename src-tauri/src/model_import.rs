@@ -107,7 +107,7 @@ fn import_selected_file(source: &Path, category: &str, root: &Path) -> Result<Im
     }
     let name = source.file_name().and_then(|x| x.to_str())
         .ok_or("Invalid model file name")?;
-    if name.contains(['/', '\\', ':']) || name == "." || name == ".."
+    if name.contains('/') || name.contains('\\') || name.contains(':') || name == "." || name == ".."
         || !name.to_lowercase().ends_with(".safetensors")
     {
         return Err("Only named .safetensors files may be imported".into());
