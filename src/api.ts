@@ -16,10 +16,28 @@ export type ModelRecord = {
   reported_architecture: string | null;
   validation: "metadata_only" | "invalid_header" | "blocked_legacy";
   note: string;
+  display_name: string | null;
+  family: "sd15" | "sd2" | "sdxl" | "sd3" | "flux" | null;
+  family_source: "manual" | "header" | "unknown";
+  license: string | null;
+  notes: string | null;
 };
 
 export async function getModels(signal?: AbortSignal): Promise<ModelRecord[]> {
   const response = await fetch(`${API_URL}/api/models`, { signal });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json() as Promise<ModelRecord[]>;
+}
+
+export type CompatibilityReport = {
+  status: "possible_match" | "family_mismatch" | "unknown" | "blocked" | "not_found" | "invalid_selection";
+  checkpoint_id: string;
+  lora_id: string;
+  summary: string;
+};
+export async function getCompatibility(checkpointId: string, loraId: string): Promise<CompatibilityReport> {
+  const params = new URLSearchParams({ checkpoint_id: checkpointId, lora_id: loraId });
+  const response = await fetch(`${API_URL}/api/models/compatibility?${params.toString()}`);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json() as Promise<CompatibilityReport>;
 }
