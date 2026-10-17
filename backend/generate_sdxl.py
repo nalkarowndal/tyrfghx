@@ -20,7 +20,7 @@ from model_integrity import model_file
 
 CONFIG_RELATIVE = Path("configs") / "sdxl-base-1.0"
 OUTPUT_ROOT = Path(__file__).resolve().parent.parent / "outputs"
-MAX_PNG_BYTES = 32 * 1024 * 1024
+MAX_PNG_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)

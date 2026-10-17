@@ -10,7 +10,9 @@ export type VerifiedGeneration = {
   peak_allocated_bytes: number | null;
   peak_reserved_bytes: number | null;
   measurement: "torch_cuda_allocator" | "measurement_failed" | "unavailable";
-  validation: "png_signature_and_sha256_verified";
+  validation: "png_decoded_and_sha256_verified";
+  width: number;
+  height: number;
 };
 export type JobSnapshot = {
   job_id: number;

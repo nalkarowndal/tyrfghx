@@ -27,9 +27,10 @@ process-group cleanup, Rust validates a strict JSON format:
 - The only accepted output is an existing `aiimage-<32 hex>.png` in the
   repository's **fixed `outputs` directory**. Other paths, path traversal,
   symlinks, unexpected JSON keys and oversized reports fail.
-- PNG must have a valid signature, be within the file-size bound (32MiB),
+- PNG must have a valid signature, be within the file-size bound (8MiB),
   and have the exact SHA-256 digest reported by Python. Rust independently
-  streams the file and hashes its bytes.
+  streams the file and hashes its bytes. M3-9 additionally decodes the PNG
+  pixels and compares its dimensions to the user's requested width/height.
 - Duration must be finite and bounded. CUDA allocator measurements are
   optional and sanity-checked; unavailable values display as **미측정**.
 - Only the sanitized file **name**, SHA-256, seed, duration and numeric
@@ -58,8 +59,8 @@ success.
 
 ## Important interpretation
 
-- **PNG signature + hash verification only proves stored-file consistency**.
-  It does not decode every PNG chunk or prove semantic correctness,
+- **PNG decoding + hash verification checks that a readable image was saved**.
+  It still does not prove semantic correctness,
   quality, prompt adherence, successful CUDA execution, or whether an image
   was generated on the expected physical GPU.
 - PyTorch allocator peaks are **not full VRAM consumption** and exclude
@@ -90,3 +91,17 @@ genuine diffusion images.
 user's target RTX 2060 SUPER 8GB machine.** Record the precise CUDA,
 driver and package versions, GPU name, model origin/license, image file
 hash, measured runtime, peak memory and screenshot/visual review.
+
+
+## M3-9 structural QA extension
+
+M3-9 uses the Rust `png` decoder with bounded memory, 1024×1024 maximum
+image dimensions, an 8MiB PNG file cap consistent with the gallery and
+Python saver, and **actual pixel decoding** before reporting verification.
+The file dimensions must also match the requested generation settings.
+The read-only gallery skips malformed PNG payloads instead of displaying
+files solely because they contain the PNG signature. Tests now use valid
+synthetic PNG encodings and reject correctly hashed but non-decodable files.
+
+This is not a forensic image audit, GPU driver verification, or an artistic
+quality assessment. Actual RTX 2060 SUPER tests remain outstanding.

@@ -71,11 +71,13 @@ it("exposes only the allowlisted verification metadata, not a raw output path", 
       png_sha256: "b".repeat(64), seed: 42, elapsed_seconds: 16.5,
       peak_allocated_bytes: 3_000_000_000,
       peak_reserved_bytes: 3_200_000_000,
-      measurement: "torch_cuda_allocator", validation: "png_signature_and_sha256_verified",
+      measurement: "torch_cuda_allocator", validation: "png_decoded_and_sha256_verified",
+      width: 512, height: 512,
     },
   });
   const state = await getGenerationJobStatus();
-  expect(state.result?.validation).toBe("png_signature_and_sha256_verified");
+  expect(state.result?.validation).toBe("png_decoded_and_sha256_verified");
   expect(state.result?.peak_allocated_bytes).toBe(3_000_000_000);
+  expect([state.result?.width, state.result?.height]).toEqual([512, 512]);
   expect(JSON.stringify(state.result)).not.toContain("C:\\");
 });
