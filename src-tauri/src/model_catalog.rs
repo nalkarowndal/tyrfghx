@@ -14,16 +14,16 @@ const MAX_ENTRIES: usize = 3_000;
 
 #[derive(Clone, Serialize)]
 pub struct ModelRecord {
-    id: String,
+    pub(crate) id: String,
     name: String,
-    category: String,
+    pub(crate) category: String,
     file_format: String,
     size_bytes: u64,
     reported_architecture: Option<String>,
-    validation: String,
+    pub(crate) validation: String,
     note: String,
     display_name: Option<String>,
-    family: Option<String>,
+    pub(crate) family: Option<String>,
     family_source: String,
     license: Option<String>,
     notes: Option<String>,
@@ -90,7 +90,7 @@ fn metadata_str(value: &Value, field: &str, limit: usize) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn scan_native_models(root: &Path) -> Result<Vec<ModelRecord>, String> {
+pub(crate) fn scan_native_models(root: &Path) -> Result<Vec<ModelRecord>, String> {
     if root.is_symlink() { return Err("Unsafe model directory".into()); }
     if !root.is_dir() { return Ok(vec![]); }
     let annotations = load_registry(root, "annotations.json");
