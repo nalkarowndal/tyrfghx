@@ -56,6 +56,8 @@ fn list_previews(root: &Path) -> Result<Vec<GenerationPreview>, String> {
     for (_, name, path, expected_size) in candidates.into_iter().take(MAX_IMAGES) {
         let Ok(bytes) = fs::read(&path) else { continue };
         if bytes.len() as u64 != expected_size || !bytes.starts_with(PNG_SIGNATURE) { continue; }
+        // A magic header alone does not make a decodable PNG safe to display.
+        if super::generation_result::decode_png(&path).is_err() { continue; }
         result.push(GenerationPreview {
             id: name,
             image_src: format!("data:image/png;base64,{}", STANDARD.encode(bytes)),
@@ -77,7 +79,12 @@ mod tests {
     use super::*;
 
     fn fake_png(root: &Path, id: &str) {
-        fs::write(root.join(id), [PNG_SIGNATURE, b"fixture payload"].concat()).unwrap();
+        let file = fs::File::create(root.join(id)).unwrap();
+        let mut encoder = png::Encoder::new(file, 2, 2);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[255u8; 16]).unwrap();
     }
 
     #[test]
@@ -106,6 +113,22 @@ mod tests {
         if std::os::windows::fs::symlink_file(&source, &linked).is_ok() {
             assert!(list_previews(dir.path()).unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn rejects_fake_signature_and_corrupt_png_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join(format!("aiimage-{}.png", "d".repeat(32)));
+        fs::write(&bad, [PNG_SIGNATURE, b"synthetic non-PNG"].concat()).unwrap();
+        assert!(list_previews(dir.path()).unwrap().is_empty());
+        let valid = format!("aiimage-{}.png", "e".repeat(32));
+        fake_png(dir.path(), &valid);
+        assert_eq!(list_previews(dir.path()).unwrap().len(), 1);
+        let mut raw = fs::read(dir.path().join(&valid)).unwrap();
+        let n = raw.len();
+        raw[n - 6] ^= 0xff;
+        fs::write(dir.path().join(&valid), raw).unwrap();
+        assert!(list_previews(dir.path()).unwrap().is_empty());
     }
 
     #[test]
