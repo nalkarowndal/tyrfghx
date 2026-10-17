@@ -6,7 +6,8 @@ import struct
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from model_integrity import IntegrityState, read_manifest, integrity_state
 from model_metadata import ModelFamily, infer_family, read_annotations
 
 MODEL_ROOT = Path(__file__).resolve().parent.parent / "models"
@@ -29,6 +30,9 @@ class ModelRecord(BaseModel):
     family_source: Literal["header", "manual", "unknown"] = "unknown"
     license: str | None = None
     notes: str | None = None
+    integrity_state: IntegrityState = "not_recorded"
+    recorded_sha256: str | None = None
+    potential_duplicate_ids: list[str] = Field(default_factory=list)
 
 
 def _read_safetensors_architecture(path: Path, size: int) -> tuple[str | None, bool]:
@@ -68,6 +72,7 @@ def scan_models(root: Path = MODEL_ROOT) -> list[ModelRecord]:
         return []
     results: list[ModelRecord] = []
     annotations = read_annotations(root)
+    integrity = read_manifest(root)
     for dirname, category in MODEL_FOLDERS.items():
         folder = root / dirname
         if folder.is_symlink() or not folder.is_dir():
@@ -107,6 +112,10 @@ def scan_models(root: Path = MODEL_ROOT) -> list[ModelRecord]:
         # Display metadata never changes model weights or bypasses validation.
         if item.file_format != "safetensors":
             continue
+        record = integrity.get(item.id)
+        item.integrity_state = integrity_state(root / item.id, record)
+        if record is not None:
+            item.recorded_sha256 = record.sha256
         annotation = annotations.get(item.id)
         if annotation:
             item.display_name = annotation.display_name
@@ -119,4 +128,13 @@ def scan_models(root: Path = MODEL_ROOT) -> list[ModelRecord]:
         elif reported_family:
             item.family = reported_family
             item.family_source = "header"
+    # Identical recorded hashes are only duplicate hints, not a live verification.
+    for item in results:
+        if item.integrity_state == "snapshot_unchanged" and item.recorded_sha256:
+            item.potential_duplicate_ids = [
+                other.id for other in results
+                if other.id != item.id
+                and other.integrity_state == "snapshot_unchanged"
+                and other.recorded_sha256 == item.recorded_sha256
+            ]
     return results
