@@ -304,6 +304,8 @@ pub async fn start_local_generation(
     let worker_group = Arc::clone(&group);
     let output_root = repo.join("outputs");
     let expected_seed = request.seed;
+    let expected_width = request.width;
+    let expected_height = request.height;
     thread::spawn(move || {
         let started = Instant::now();
         let mut timed_out = false;
@@ -365,9 +367,14 @@ pub async fn start_local_generation(
                     &bytes, &output_root, expected_seed
                 ));
             match parsed {
-                Ok(result) => {
+                Ok(result) if result.width == expected_width &&
+                             result.height == expected_height => {
                     verified = Some(result);
-                    message = "Python 실행이 종료됐고 결과 PNG 시그니처·SHA-256 검증이 통과했습니다. 화질·CUDA 장치 동작 검증과는 별개입니다.".into();
+                    message = "Python 실행이 종료됐고 결과 PNG 디코딩·SHA-256 검증이 통과했습니다. 화질·CUDA 장치 동작 검증과는 별개입니다.".into();
+                }
+                Ok(_) => {
+                    phase = "failed".into();
+                    message = "생성 파일의 실제 해상도가 요청한 크기와 일치하지 않습니다.".into();
                 }
                 Err(problem) => {
                     phase = "failed".into();
