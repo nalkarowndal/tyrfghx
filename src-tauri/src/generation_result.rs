@@ -66,7 +66,7 @@ fn valid_digest(hash: &str) -> bool {
 /// A header and a matching SHA-256 alone are insufficient: arbitrary bytes
 /// could be written by the subprocess and hashed. This checks that the
 /// image data itself can be decoded as a PNG, not its artistic quality.
-fn decode_png(path: &Path) -> Result<(u32, u32), String> {
+pub(crate) fn decode_png(path: &Path) -> Result<(u32, u32), String> {
     let file = File::open(path).map_err(|_| "PNG 디코딩을 위해 파일을 열 수 없습니다.")?;
     let mut limits = png::Limits::default();
     limits.bytes = MAX_PIXEL_BYTES;
@@ -189,14 +189,11 @@ pub fn validate_report(bytes: &[u8], root: &Path, seed: u64) -> Result<VerifiedR
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     fn fixture() -> (tempfile::TempDir, Vec<u8>) {
         let dir = tempfile::tempdir().unwrap();
         let file_name = format!("aiimage-{}.png", "a".repeat(32));
         let output = dir.path().join(file_name);
-        let mut f = File::create(&output).unwrap();
-        drop(f);
         let file = File::create(&output).unwrap();
         let mut encoder = png::Encoder::new(file, 2, 2);
         encoder.set_color(png::ColorType::Rgba);
