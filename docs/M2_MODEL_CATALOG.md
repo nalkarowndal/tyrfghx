@@ -84,3 +84,40 @@ Sources:
 
 Tests: `cd backend && python -m pytest -q`, `npm run build`, `npm test`.
 Windows desktop use, GPU tests, and visual UI testing are still pending.
+
+## M2-3 — Local file import and recorded SHA-256
+
+This increment adds a **local command-line file selector** (Tkinter native
+file dialog on a desktop Python installation). It is not a Tauri in-app picker.
+
+From the `backend` directory:
+
+```powershell
+python model_import.py --category checkpoints
+python model_import.py --category loras --source "C:\\Downloads\\style.safetensors"
+python model_import.py --category vae --source "C:\\Downloads\\vae.safetensors" --expected-sha256 "<64-char trusted hash>"
+python model_import.py --category checkpoints --verify "checkpoints/my-model.safetensors"
+```
+
+- Import is explicit and local, copies source without editing the original.
+- `.safetensors` header is checked before copying; `.ckpt` is refused.
+- Uses streaming SHA-256 with fixed 4 MiB buffers, bounded by 64 GiB per file.
+- Stage-and-hardlink ensures a final filename is never silently overwritten;
+  this requires local filesystem hard-link support (NTFS is supported).
+- Optional `--expected-sha256` rejects a copy that does not match a separately
+  obtained trusted digest.
+- Writes `models/integrity.json` with checksum, file size, and file mtime.
+  Do not check model files or integrity registry into Git.
+- The model page shows **recorded checksum** and snapshot freshness based on
+  size/mtime, not a live cryptographic verification. A malicious or same-size
+  modification may not change these indicators.
+- `--verify` recomputes current SHA-256 against the recorded hash; it
+  **does not rewrite or trust** a corrupted record. Return code 0 is a match,
+  code 2 is mismatch or not recorded.
+- Identical recorded hashes are labeled **potential duplicates** only.
+- The HTTP server still has no model-file upload, delete, or arbitrary file
+  read/hash endpoint. Actual Tauri-integrated file picking remains future work.
+
+QA includes synthetic fixture imports, hash mismatch, no-overwrite behavior,
+file mutation, rejected unsafe formats/links, and corrupt-manifest handling.
+No GPU/model execution is performed.
