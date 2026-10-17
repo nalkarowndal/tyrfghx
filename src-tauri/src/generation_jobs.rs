@@ -155,6 +155,11 @@ fn outcome_message(ok: bool, stderr: &str, code: Option<i32>, cancelled: bool) -
 }
 
 #[tauri::command]
+pub fn local_generation_supported() -> bool {
+    cfg!(all(windows, debug_assertions))
+}
+
+#[tauri::command]
 pub async fn start_local_generation(
     app: AppHandle,
     state: State<'_, JobManager>,
