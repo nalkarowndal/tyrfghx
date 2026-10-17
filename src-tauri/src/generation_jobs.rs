@@ -170,6 +170,22 @@ fn consume_tail(mut stream: impl Read, shared: Arc<Mutex<Vec<u8>>>) {
     }
 }
 
+fn consume_bounded_stdout(mut pipe: impl Read) -> Result<Vec<u8>, String> {
+    // Always drain to EOF to avoid filling OS pipes and deadlocking Python.
+    // Store at most MAX_OUTPUT_JSON + 1 bytes so an oversized report is rejected.
+    let limit = super::generation_result::MAX_OUTPUT_JSON + 1;
+    let mut captured = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let count = pipe.read(&mut buf)
+            .map_err(|_| "생성 결과 출력 수집에 실패했습니다.".to_string())?;
+        if count == 0 { break; }
+        let keep = (limit - captured.len()).min(count);
+        captured.extend_from_slice(&buf[..keep]);
+    }
+    Ok(captured)
+}
+
 fn is_over_limit(start: Instant, limit: Duration) -> bool {
     start.elapsed() >= limit
 }
@@ -264,10 +280,7 @@ pub async fn start_local_generation(
     let stdout = child.stdout.take().ok_or("Cannot capture inference metrics")?;
     let (result_sender, result_receiver) = mpsc::sync_channel(1);
     thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let response = stdout.take((super::generation_result::MAX_OUTPUT_JSON + 1) as u64)
-            .read_to_end(&mut bytes)
-            .map(|_| bytes);
+        let response = consume_bounded_stdout(stdout);
         let _ = result_sender.send(response);
     });
     let stderr = child.stderr.take().ok_or("Cannot capture subprocess diagnostics")?;
@@ -441,6 +454,14 @@ mod tests {
         consume_tail(std::io::Cursor::new(vec![b'X'; 50000]), Arc::clone(&shared));
         assert_eq!(shared.lock().unwrap().len(), MAX_STDERR_TAIL);
     }
+    #[test] fn capped_stdout_reader_drains_all_data_and_marks_oversize() {
+        let payload = vec![b'X'; super::generation_result::MAX_OUTPUT_JSON + 99_000];
+        let mut reader = std::io::Cursor::new(&payload);
+        let stored = consume_bounded_stdout(&mut reader).unwrap();
+        assert_eq!(stored.len(), super::generation_result::MAX_OUTPUT_JSON + 1);
+        assert_eq!(reader.position() as usize, payload.len());
+    }
+
     #[test] fn runtime_limit_and_timeout_result() {
         let earlier = Instant::now() - Duration::from_secs(5);
         assert!(is_over_limit(earlier, Duration::from_secs(3)));
