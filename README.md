@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M2-3 (code implemented, CI tested).**
+> **Current milestone: M2-4 (native Tauri import preview).**
 > This is **not yet an operational AI image generator**. GPU inference (M3),
 > RTX 2060 SUPER 8GB performance verification, packaged Tauri runtime, and
 > actual native window testing remain outstanding.
@@ -16,11 +16,15 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 - LoRA–checkpoint family comparison (metadata *suggestion*, not loading proof).
 - **Explicit local import via CLI** with a Tkinter desktop file picker, or
   `--source` for a path you select. Imports keep the source intact.
+- **Native Tauri desktop import button:** invokes a Rust file picker and copies
+  locally. It accepts only a model category from the webview, never a path.
+  The browser-only version disables this button.
 - Streaming SHA-256 and optional trusted expected checksum, collision prevention,
   and locally recorded integrity snapshots.
 - Locally recompute a model checksum with `--verify`. UI only displays
   recorded checksum and size/mtime snapshot changes, not live verification.
-- Linux and Windows Python tests, and frontend build/tests in GitHub Actions.
+- Linux and Windows Python tests and frontend tests in GitHub Actions;
+  M2-4 also adds Windows Rust build/unit-test CI.
 
 ## Development quick start
 
@@ -56,7 +60,10 @@ python model_import.py --category checkpoints --verify "checkpoints/my-model.saf
 ```
 
 Accepted categories: `checkpoints`, `loras`, `vae`.
-The native chooser runs from a **local CLI**, not inside the Tauri UI.
+The CLI chooser is independent from the newer **Tauri-native model import button**.
+During Tauri development both use the repository \`models\` directory.
+Release builds import to app-local-data \`models\`, but backend auto-start and
+shared production storage are not integrated yet.
 Safetensors only; legacy CKPT is deliberately never imported or loaded.
 Model files and local integrity registries are ignored by Git.
 
