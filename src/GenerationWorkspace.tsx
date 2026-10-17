@@ -106,7 +106,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   const canRun = desktop && runnerSupported && assessment.ok && consent && jobStatusLoaded && !jobBusy && !jobLoading;
   return <div className="generation-layout">
     <section className="generation-panel" aria-label="이미지 생성 설정">
-      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-7 · GPU 환경 진단</span></div>
+      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-8 · 생성 결과 검증</span></div>
       <p className="muted">Windows Tauri 개발판에서는 명시적으로 승인한 한 건의 로컬 SDXL 추론을 시작하거나 중지할 수 있습니다. 배포판과 웹 브라우저에서는 비활성화됩니다.</p>
       <GpuDiagnosticsPanel supported={runnerSupported} busy={jobBusy || jobLoading} />
       <div className="generation-fields">
@@ -161,6 +161,16 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
           <strong>작업 상태: {job?.phase ?? (jobStatusLoaded ? "idle" : "확인 중")}</strong>
           <p>{job?.message ?? "대기 중"}</p>
           <p>경과 시간: {job?.elapsed_seconds ?? 0}초 / 최대 {job?.time_limit_seconds ?? 1800}초</p>
+          {job?.phase === "succeeded" && job.result && <div className="generation-metrics">
+            <strong>결과 파일 검증 완료</strong>
+            <p>파일: {job.result.file_name}</p>
+            <p>시드: {job.result.seed} · CLI 추론 및 모델 로딩 시간: {job.result.elapsed_seconds.toFixed(2)}초</p>
+            <p>PyTorch 피크 할당 메모리: {job.result.measurement !== "torch_cuda_allocator" || job.result.peak_allocated_bytes == null ? "미측정" : (job.result.peak_allocated_bytes / 1073741824).toFixed(2) + " GiB"}</p>
+            <p>PyTorch 피크 예약 메모리: {job.result.measurement !== "torch_cuda_allocator" || job.result.peak_reserved_bytes == null ? "미측정" : (job.result.peak_reserved_bytes / 1073741824).toFixed(2) + " GiB"}</p>
+            <p>측정 상태: {job.result.measurement === "torch_cuda_allocator" ? "PyTorch CUDA 할당자 측정" : "GPU 할당자 측정 불가"}</p>
+            <p className="generation-hash">PNG SHA-256: <code>{job.result.png_sha256}</code></p>
+            <p>PNG 시그니처와 체크섬을 확인했습니다. GPU 전체 VRAM 사용량·그림 품질·프롬프트 준수는 검증하지 않았습니다.</p>
+          </div>}
           <p>경과 시간은 실제 이미지 생성 진행률이 아닙니다. Windows Job Objects는 일반적인 하위 프로세스 종료를 요청하지만, 모든 외부 프로세스나 GPU 자원 회수를 보장하지 않습니다.</p>
         </div>}
         {checked && <div role="status" className={assessment.ok ? "compatibility-result" : "model-error"}>

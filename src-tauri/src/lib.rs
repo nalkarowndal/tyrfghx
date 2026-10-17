@@ -2,6 +2,7 @@ mod model_import;
 mod model_catalog;
 mod generation_gallery;
 mod generation_jobs;
+mod generation_result;
 mod windows_process_job;
 mod gpu_diagnostics;
 

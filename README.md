@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-7 (Tauri desktop GPU readiness panel).**
+> **Current milestone: M3-8 (bounded local PNG checksum + GPU allocator telemetry preview).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,22 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Verified local generation results (M3-8)
+
+Windows Tauri **debug** generation now requests explicit CLI `--execute
+--metrics`, collects bounded JSON output and validates the reported PNG
+against the fixed local `outputs/` directory. Only the file name,
+independently checked SHA-256, seed, generation-call time and optional
+PyTorch CUDA allocator peaks are shown in the UI.
+
+A matching PNG signature and hash establishes **stored bytes consistency
+only**, not image quality or actual GPU compatibility. The UI clearly
+marks unavailable memory metrics, and invalid CLI output is a failed job.
+No generation API is exposed to browsers or Tauri release builds.
+
+See [M3-8 generation verification guide](docs/M3_VERIFIED_GENERATION_METRICS.md).
+Actual hardware validation remains pending.
 
 ## Desktop GPU readiness panel (M3-7)
 
@@ -150,3 +166,5 @@ Model files and local integrity registries are ignored by Git.
 
 M10 is reserved for a Krea-inspired canvas/editor workflow, **not** multi-character
 generation. ComfyUI remains an optional future engine adapter.
+
+- [M3-8 generation metrics, checksum and Windows debug limitations](docs/M3_VERIFIED_GENERATION_METRICS.md)

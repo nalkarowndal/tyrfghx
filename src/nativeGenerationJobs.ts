@@ -2,7 +2,24 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { ImageSettings } from "./generationWorkspacePlan";
 
 export type JobPhase = "idle" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "timed_out";
-export type JobSnapshot = { job_id: number; phase: JobPhase; message: string; elapsed_seconds: number; time_limit_seconds: number };
+export type VerifiedGeneration = {
+  file_name: string;
+  png_sha256: string;
+  seed: number;
+  elapsed_seconds: number;
+  peak_allocated_bytes: number | null;
+  peak_reserved_bytes: number | null;
+  measurement: "torch_cuda_allocator" | "measurement_failed" | "unavailable";
+  validation: "png_signature_and_sha256_verified";
+};
+export type JobSnapshot = {
+  job_id: number;
+  phase: JobPhase;
+  message: string;
+  elapsed_seconds: number;
+  time_limit_seconds: number;
+  result: VerifiedGeneration | null;
+};
 
 /** Windows DEBUG builds only. No paths, executables or arbitrary command names cross IPC. */
 export async function startLocalGeneration(settings: ImageSettings, confirmed: boolean): Promise<JobSnapshot> {
