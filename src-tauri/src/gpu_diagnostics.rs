@@ -188,11 +188,13 @@ pub async fn inspect_local_gpu(
     if !cfg!(all(windows, debug_assertions)) {
         return Err("GPU 환경 검사는 Windows Tauri 개발판에서만 지원합니다.".into());
     }
-    if state.has_active_job()? {
-        return Err("이미지 생성 작업 중에는 GPU 환경 진단을 시작할 수 없습니다.".into());
-    }
+    let permit = state.reserve_diagnostic()?;
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    tauri::async_runtime::spawn_blocking(move || run_probe(repo))
+    tauri::async_runtime::spawn_blocking(move || {
+        // Always release the reservation, even on error or panic.
+        let _permit = permit;
+        run_probe(repo)
+    })
         .await.map_err(|_| "GPU 진단 백그라운드 작업이 종료됐습니다.".to_string())?
 }
 
