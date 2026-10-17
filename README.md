@@ -3,10 +3,11 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-3 (Windows development-only single GPU job runner preview).**
+> **Current milestone: M3-4 (bounded Windows development-only GPU jobs).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
-> Windows debug builds now expose a consent-gated local Python job runner;
+> Windows debug builds expose a consent-gated local Python job runner with a
+> 30-minute watchdog and bounded in-memory diagnostics;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
 
