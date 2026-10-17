@@ -159,19 +159,24 @@ fn import_selected_file(source: &Path, category: &str, root: &Path) -> Result<Im
     Ok(ImportResult { model_id: id, sha256: hash, size_bytes: copied })
 }
 
+/// Use one storage root for BOTH native catalog and the selected-file importer.
+/// In debug builds this intentionally matches the separate Python dev server.
+/// In release builds the native Tauri catalog works even with no Python process.
+pub(crate) fn model_root(app: &AppHandle) -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../models"))
+    } else {
+        Ok(app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("models"))
+    }
+}
+
 #[tauri::command]
 pub async fn import_local_model(
     app: AppHandle,
     category: String,
 ) -> Result<Option<ImportResult>, String> {
     allowed_category(&category)?;
-    // In development the Python server already reads <repository>/models.
-    // Packaged backend integration is not implemented yet.
-    let root = if cfg!(debug_assertions) {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../models")
-    } else {
-        app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("models")
-    };
+    let root = model_root(&app)?;
     // The native dialog is invoked in Rust; no arbitrary source path is
     // accepted from JavaScript.
     let selected = app.dialog().file()
