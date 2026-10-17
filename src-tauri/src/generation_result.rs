@@ -62,11 +62,84 @@ fn valid_digest(hash: &str) -> bool {
     hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+/// Validate the entire bounded PNG chunk sequence (including IEND CRC).
+/// A PNG frame decoder can finish before checking the trailing IEND chunk,
+/// so decoding alone is insufficient to catch all file corruptions.
+fn validate_png_chunks(path: &Path) -> Result<(), String> {
+    let bytes = fs::read(path)
+        .map_err(|_| "PNG 파일의 전체 청크를 읽을 수 없습니다.")?;
+    if bytes.len() < 8 + 12 + 13 + 12 || bytes.len() as u64 > MAX_PNG_SIZE
+        || !bytes.starts_with(PNG_MAGIC)
+    {
+        return Err("PNG 시그니처 또는 파일 크기가 올바르지 않습니다.".into());
+    }
+    let mut cursor = PNG_MAGIC.len();
+    let mut count = 0usize;
+    let mut saw_ihdr = false;
+    let mut saw_idat = false;
+    let mut closed_idat = false;
+    let mut saw_iend = false;
+    while cursor < bytes.len() {
+        count += 1;
+        if count > 16_384 || cursor.checked_add(12).is_none_or(|n| n > bytes.len()) {
+            return Err("PNG 청크 개수 또는 길이 제한을 초과했습니다.".into());
+        }
+        let length = u32::from_be_bytes(bytes[cursor..cursor + 4]
+            .try_into().map_err(|_| "PNG 청크 길이가 손상되었습니다.")?) as usize;
+        let data_start = cursor + 8;
+        let data_end = data_start.checked_add(length)
+            .ok_or("PNG 청크 길이 오버플로가 발생했습니다.")?;
+        let end = data_end.checked_add(4)
+            .ok_or("PNG 청크 종료 길이 오버플로가 발생했습니다.")?;
+        if end > bytes.len() {
+            return Err("PNG 청크 데이터가 잘렸습니다.".into());
+        }
+        let kind = &bytes[cursor + 4..cursor + 8];
+        if !kind.iter().all(|b| b.is_ascii_alphabetic()) {
+            return Err("PNG 청크 종류가 올바르지 않습니다.".into());
+        }
+        let saved_crc = u32::from_be_bytes(bytes[data_end..end]
+            .try_into().map_err(|_| "PNG CRC가 누락되었습니다.")?);
+        if crc32fast::hash(&bytes[cursor + 4..data_end]) != saved_crc {
+            return Err("PNG 청크의 CRC 검사에 실패했습니다.".into());
+        }
+        if count == 1 {
+            if kind != b"IHDR" || length != 13 {
+                return Err("PNG IHDR 헤더 구조가 올바르지 않습니다.".into());
+            }
+            saw_ihdr = true;
+        } else if kind == b"IHDR" {
+            return Err("PNG IHDR 청크가 중복되었습니다.".into());
+        }
+        if kind == b"IDAT" {
+            if closed_idat {
+                return Err("PNG IDAT 청크 순서가 올바르지 않습니다.".into());
+            }
+            saw_idat = true;
+        } else if saw_idat {
+            closed_idat = true;
+        }
+        if kind == b"IEND" {
+            if !saw_ihdr || !saw_idat || length != 0 || end != bytes.len() {
+                return Err("PNG IEND 종료 청크가 올바르지 않습니다.".into());
+            }
+            saw_iend = true;
+            break;
+        }
+        cursor = end;
+    }
+    if !saw_ihdr || !saw_idat || !saw_iend {
+        return Err("PNG 필수 IHDR, IDAT, IEND 청크가 누락되었습니다.".into());
+    }
+    Ok(())
+}
+
 /// Decode one actual PNG frame under strict memory/dimension limits.
 /// A header and a matching SHA-256 alone are insufficient: arbitrary bytes
 /// could be written by the subprocess and hashed. This checks that the
 /// image data itself can be decoded as a PNG, not its artistic quality.
 pub(crate) fn decode_png(path: &Path) -> Result<(u32, u32), String> {
+    validate_png_chunks(path)?;
     let file = File::open(path).map_err(|_| "PNG 디코딩을 위해 파일을 열 수 없습니다.")?;
     let mut limits = png::Limits::default();
     limits.bytes = MAX_PIXEL_BYTES;
