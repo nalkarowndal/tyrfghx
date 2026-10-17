@@ -60,3 +60,22 @@ it("shows a timed-out terminal phase without treating it as success", async () =
   expect(state.phase).toBe("timed_out");
   expect(state.elapsed_seconds).toBe(state.time_limit_seconds);
 });
+
+it("exposes only the allowlisted verification metadata, not a raw output path", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  vi.mocked(invoke).mockResolvedValue({
+    job_id: 3, phase: "succeeded", message: "Checksum verified",
+    elapsed_seconds: 19, time_limit_seconds: 1800,
+    result: {
+      file_name: "aiimage-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      png_sha256: "b".repeat(64), seed: 42, elapsed_seconds: 16.5,
+      peak_allocated_bytes: 3_000_000_000,
+      peak_reserved_bytes: 3_200_000_000,
+      measurement: "torch_cuda_allocator", validation: "png_signature_and_sha256_verified",
+    },
+  });
+  const state = await getGenerationJobStatus();
+  expect(state.result?.validation).toBe("png_signature_and_sha256_verified");
+  expect(state.result?.peak_allocated_bytes).toBe(3_000_000_000);
+  expect(JSON.stringify(state.result)).not.toContain("C:\\");
+});
