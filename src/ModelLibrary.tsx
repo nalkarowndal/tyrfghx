@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { getCompatibility, type CompatibilityReport, type ModelRecord } from "./api";
+import { isTauri } from "@tauri-apps/api/core";
+import { importModelFromNativeDialog, type ImportCategory } from "./nativeModelImport";
 
 const categories: Record<ModelRecord["category"], string> = {
   checkpoint: "체크포인트", lora: "LoRA", vae: "VAE",
@@ -21,6 +23,31 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
   const [report, setReport] = useState<CompatibilityReport | null>(null);
   const [compareError, setCompareError] = useState("");
   const [comparing, setComparing] = useState(false);
+  const [importCategory, setImportCategory] = useState<ImportCategory>("checkpoints");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
+  const [importError, setImportError] = useState("");
+  const desktopApp = isTauri();
+
+  async function importModel() {
+    if (importBusy || !desktopApp) return;
+    setImportBusy(true);
+    setImportMessage("");
+    setImportError("");
+    try {
+      const result = await importModelFromNativeDialog(importCategory);
+      if (result !== null) {
+        setImportMessage(`모델 가져오기 완료: ${result.model_id}. 등록 당시 SHA-256: ${result.sha256}. 백엔드 목록을 새로고침합니다.`);
+        onRefresh();
+      } else {
+        setImportMessage("파일 선택을 취소했습니다. 변경사항이 없습니다.");
+      }
+    } catch (reason) {
+      setImportError(String(reason));
+    } finally {
+      setImportBusy(false);
+    }
+  }
 
   const visible = useMemo(() => items.filter(item => {
     const matchCategory = category === "all" || item.category === category;
@@ -58,13 +85,33 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
         {isLoading ? "검색 중..." : "목록 새로고침"}
       </button>
     </div>
+    <section className="model-help" aria-label="데스크톱 모델 파일 가져오기">
+      <strong>데스크톱 모델 가져오기 (M2-4)</strong>
+      <p>Tauri 창에서 모델 종류를 선택하고 파일을 지정하면 원본을 변경하지 않고 aiimage 모델 폴더에 안전하게 복사합니다.</p>
+      <div className="compatibility-form">
+        <label>가져올 모델 종류
+          <select aria-label="가져올 모델 종류" value={importCategory} disabled={importBusy} onChange={e => setImportCategory(e.target.value as ImportCategory)}>
+            <option value="checkpoints">체크포인트</option>
+            <option value="loras">LoRA</option>
+            <option value="vae">VAE</option>
+          </select>
+        </label>
+        <button className="refresh-button" type="button" onClick={importModel} disabled={!desktopApp || importBusy}>
+          {importBusy ? "가져오는 중..." : "파일 선택 후 가져오기"}
+        </button>
+      </div>
+      {!desktopApp && <p className="muted">브라우저에서는 파일 가져오기 버튼을 사용할 수 없습니다. Tauri 데스크톱 앱에서 실행하세요.</p>}
+      {importMessage && <p role="status" className="compatibility-result">{importMessage}</p>}
+      {importError && <p role="alert" className="model-error">파일 가져오기 실패: {importError}</p>}
+      <p className="muted">개발 중에는 기존 models 폴더를 사용합니다. 배포판은 별도 앱 데이터 폴더를 사용하며, Python 백엔드 자동 실행과 폴더 연결은 아직 구현되지 않았습니다.</p>
+    </section>
     <div className="model-help">
       <strong>모델 추가 및 정보 등록</strong>
       <p>Windows에서 파일 선택 창으로 등록하려면 <code>backend</code> 폴더에서 <code>python model_import.py --category checkpoints</code> 명령을 실행하세요. LoRA는 <code>--category loras</code>, VAE는 <code>--category vae</code>로 설정합니다.</p>
       <p>이미 파일을 수동으로 넣었다면 <code>models/checkpoints</code>, <code>models/loras</code>, <code>models/vae</code> 폴더를 확인한 뒤 새로고침하세요.</p>
       <p>모델 계열을 알고 있다면 로컬 CLI에서 <code>python model_register.py loras/style.safetensors --family sdxl</code> 명령으로 정보를 등록할 수 있습니다 (backend 폴더에서 실행).</p>
       <p>무결성 검증은 백엔드 폴더에서 <code>python model_import.py --category checkpoints --verify "checkpoints/파일명.safetensors"</code> 명령을 실행하세요. 등록 시 저장된 해시와 실제 파일을 재비교합니다.</p>
-      <p>파일 선택은 로컬 CLI에서만 실행됩니다. 이 화면은 아직 파일 가져오기·검증 명령을 직접 실행하지 않으며, 모델 호환성도 보장하지 않습니다.</p>
+      <p>브라우저에서는 CLI만, Tauri 창에서는 위 파일 선택 버튼으로 가져올 수 있습니다. 모델 호환성은 보장하지 않습니다.</p>
     </div>
     {error && <p role="alert" className="model-error">모델 목록 오류: {error}</p>}
     <div className="model-filters">
