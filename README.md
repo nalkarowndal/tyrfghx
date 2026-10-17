@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-9 (bounded PNG pixel decoding and SHA-256 verification).**
+> **Current milestone: M3-10 (opt-in offline hardware acceptance CLI and sanitized QA evidence).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,27 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Target-device acceptance reporting (M3-10)
+
+The repository includes `backend/hardware_acceptance.py`, an offline
+owner-operated QA command. **Default invocation inspects SDXL metadata and
+offline configuration only: it does not import Torch or start CUDA**.
+
+```powershell
+.\.venv\Scripts\python.exe backend\hardware_acceptance.py --checkpoint "checkpoints/YOUR_MODEL.safetensors"
+```
+
+Add `--inspect-gpu` for local CUDA device information (may initialize
+CUDA, no model load). To attempt **real generation on your own PC**, supply
+a prompt and both `--execute --confirm-gpu` plus low-memory settings.
+The tool performs independent saved-image decoding and SHA-256 reporting,
+but does not grade artistic quality or total GPU VRAM. Its structured
+report excludes prompts and absolute local paths.
+
+See [M3-10 target hardware acceptance guide](docs/M3_HARDWARE_ACCEPTANCE_CLI.md).
+GitHub CI uses only injected synthetic models/GPU objects and does not
+execute RTX 2060 SUPER inference.
 
 ## Verified local generation results (M3-8)
 
