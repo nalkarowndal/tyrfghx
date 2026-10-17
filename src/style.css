@@ -36,3 +36,10 @@
    text-field styling inherited from .generation-fields input. */
 .generation-fields .generation-consent{display:flex;align-items:flex-start;gap:10px;line-height:1.5;font-size:13px;font-weight:500}
 .generation-fields .generation-consent input[type="checkbox"]{width:18px;min-width:18px;height:18px;min-height:18px;padding:0;margin:1px 0 0;flex:none;accent-color:#98b4ec;cursor:pointer}
+
+/* M3-7 local CUDA-readiness inspection; visually separate from GPU execution. */
+.gpu-diagnostics-panel{margin-top:18px;border:1px solid #3d5368;background:#19293a;border-radius:12px;padding:16px;min-width:0}
+.gpu-diagnostics-panel .generation-heading h3{margin:0;font-size:17px;font-weight:650}
+.gpu-diagnostics-panel .muted{line-height:1.6}
+.gpu-diagnostics-panel .compatibility-result{overflow-wrap:anywhere}
+.gpu-diagnostics-panel .refresh-button:disabled{opacity:.55;cursor:not-allowed}
