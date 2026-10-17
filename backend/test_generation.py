@@ -99,13 +99,13 @@ class FakePipeline:
         return cls()
 
     def enable_model_cpu_offload(self):
-        self.offloaded = True
+        type(self).offloaded = True
 
     def enable_vae_slicing(self):
-        self.vae_sliced = True
+        type(self).vae_sliced = True
 
     def __call__(self, **kwargs):
-        self.called = kwargs
+        type(self).called = kwargs
         return SimpleNamespace(images=[FakeImage()])
 
 
