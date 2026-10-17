@@ -121,3 +121,33 @@ python model_import.py --category checkpoints --verify "checkpoints/my-model.saf
 QA includes synthetic fixture imports, hash mismatch, no-overwrite behavior,
 file mutation, rejected unsafe formats/links, and corrupt-manifest handling.
 No GPU/model execution is performed.
+
+## M2-4 — native Tauri file selection (development preview)
+
+The desktop-only **파일 선택 후 가져오기** button is now wired to a
+registered Tauri v2 Rust command, `import_local_model`. The webview passes
+**only** the category (`checkpoints`, `loras`, or `vae`).
+The native OS dialog obtains the actual source path entirely inside Rust.
+Canceling the dialog returns no result and makes no filesystem changes.
+
+Rust copies a local `.safetensors` model into the category folder, checks a
+bounded JSON header, streams a SHA-256 checksum, rejects collisions, and writes
+the same `models/integrity.json` schema used by the Python CLI. Model weights
+are never loaded into torch, nor sent through an HTTP upload endpoint.
+
+- Development (`npm run tauri dev`): imports to `<repo>/models`, shared with
+  the separately running local FastAPI API. Click **목록 새로고침** if needed.
+- Release builds: import to Tauri's application-local-data `models` folder.
+  Packaging/auto-start of the Python service is **not implemented yet**;
+  production imports cannot appear in the UI catalog until backend storage
+  configuration is unified in a later milestone.
+- Browser-only `npm run dev`: the import button is disabled; use the existing
+  local Python CLI importer.
+- Tauri's dialog is available through the Rust plugin, not an unrestricted
+  JavaScript filesystem plugin; there are no additional webview FS privileges.
+- Confirmed test coverage in CI must include desktop Rust build/tests on
+  Windows, not merely frontend `npm run build`.
+- Actual GUI picker, Windows runtime behavior, antivirus interaction,
+  filesystem permissions and packaging remain subject to user-device QA.
+
+The preview is intentionally not a complete model-manager release.
