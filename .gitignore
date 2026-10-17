@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+src-tauri/target/
+.env
+.env.*
+models/
+outputs/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
