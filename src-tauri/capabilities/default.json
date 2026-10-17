@@ -1,0 +1,10 @@
+{
+  "identifier": "default",
+  "description": "Base window without privileged native permissions",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}
