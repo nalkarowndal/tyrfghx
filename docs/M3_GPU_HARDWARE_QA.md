@@ -97,3 +97,21 @@ Official API references:
 - [PyTorch CUDA API](https://docs.pytorch.org/docs/stable/cuda.html)
 - [PyTorch CUDA memory API](https://docs.pytorch.org/docs/stable/generated/torch.cuda.mem_get_info.html)
 - [Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+
+## M3-7: GPU diagnostics directly in the Tauri application
+
+In a Windows Tauri **debug development** build, open **이미지 생성** and
+select **GPU 진단 실행**. The native IPC command `inspect_local_gpu` runs
+only the fixed `backend/gpu_diagnostics.py` via the fixed local
+`.venv/Scripts/python.exe` and returns the same versioned JSON report to
+the interface. This check does not download any model or start diffusion.
+
+The command is disabled in browser/release mode, while a generation process
+is active, and if the local environment is missing. It uses a 25-second
+timeout, a bounded JSON response and a Windows Job Object.
+
+This is a convenience over running the Python diagnostic manually, not
+actual GPU image generation, actual peak VRAM benchmark, or comprehensive
+device compatibility certification. Windows interactive QA remains pending.
+
+See [M3-7 details](M3_DESKTOP_GPU_DIAGNOSTICS.md).
