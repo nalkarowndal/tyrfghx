@@ -54,6 +54,19 @@ pub struct JobManager {
     current: Mutex<Option<RunningJob>>,
 }
 
+impl JobManager {
+    /// Read-only check used by the diagnostics command. Avoid allocating
+    /// another CUDA context while an image generation child is running.
+    pub(crate) fn has_active_job(&self) -> Result<bool, String> {
+        let guard = self.current.lock().map_err(|_| "Job manager unavailable")?;
+        if let Some(job) = guard.as_ref() {
+            let status = job.snapshot.lock().map_err(|_| "Job status unavailable")?;
+            return Ok(status.phase == "running" || status.phase == "cancelling");
+        }
+        Ok(false)
+    }
+}
+
 impl Drop for JobManager {
     fn drop(&mut self) {
         if let Ok(mut guard) = self.current.lock() {
