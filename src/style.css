@@ -43,3 +43,7 @@
 .gpu-diagnostics-panel .muted{line-height:1.6}
 .gpu-diagnostics-panel .compatibility-result{overflow-wrap:anywhere}
 .gpu-diagnostics-panel .refresh-button:disabled{opacity:.55;cursor:not-allowed}
+
+.generation-metrics{margin-top:14px;border:1px solid #3b5871;border-radius:12px;background:#16263a;padding:14px;overflow-wrap:anywhere}
+.generation-metrics p{font-size:12px;line-height:1.65;margin:8px 0}
+.generation-metrics .generation-hash{word-break:break-all}
