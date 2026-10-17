@@ -52,6 +52,30 @@ struct RunningJob {
 pub struct JobManager {
     next_id: AtomicU64,
     current: Mutex<Option<RunningJob>>,
+    diagnostic_active: Arc<AtomicBool>,
+}
+
+pub(crate) struct DiagnosticPermit(Arc<AtomicBool>);
+impl Drop for DiagnosticPermit {
+    fn drop(&mut self) { self.0.store(false, Ordering::SeqCst); }
+}
+
+impl JobManager {
+    /// A scoped single-flight diagnostic reservation: protects concurrent
+    /// windows and prevents a CUDA check overlapping with live inference.
+    pub(crate) fn reserve_diagnostic(&self) -> Result<DiagnosticPermit, String> {
+        let guard = self.current.lock().map_err(|_| "Job manager unavailable")?;
+        if let Some(job) = guard.as_ref() {
+            let status = job.snapshot.lock().map_err(|_| "Job status unavailable")?;
+            if status.phase == "running" || status.phase == "cancelling" {
+                return Err("이미지 생성 중에는 CUDA 진단을 시작할 수 없습니다.".into());
+            }
+        }
+        self.diagnostic_active.compare_exchange(false, true,
+            Ordering::SeqCst, Ordering::SeqCst)
+            .map_err(|_| "이미 CUDA 환경 진단이 진행 중입니다.".to_string())?;
+        Ok(DiagnosticPermit(Arc::clone(&self.diagnostic_active)))
+    }
 }
 
 impl Drop for JobManager {
@@ -189,6 +213,9 @@ pub async fn start_local_generation(
     let python = validate_local_files(&repo, &models, &request)?;
 
     let mut guard = state.current.lock().map_err(|_| "Job manager lock error")?;
+    if state.diagnostic_active.load(Ordering::SeqCst) {
+        return Err("GPU 환경 검사 중에는 모델 생성을 시작할 수 없습니다.".into());
+    }
     if let Some(job) = guard.as_ref() {
         let phase = job.snapshot.lock().map_err(|_| "Job state lock error")?.phase.clone();
         if phase == "running" || phase == "cancelling" {
@@ -384,6 +411,16 @@ mod tests {
         let (phase, message) = outcome_message(false, "CUDA out of memory", None, false, true);
         assert_eq!(phase, "timed_out");
         assert!(message.contains("30분"));
+    }
+
+    #[test] fn diagnostic_reservation_is_single_flight_and_releases_on_drop() {
+        let state = JobManager::default();
+        let permit = state.reserve_diagnostic().unwrap();
+        assert!(state.reserve_diagnostic().is_err());
+        assert!(state.diagnostic_active.load(Ordering::SeqCst));
+        drop(permit);
+        assert!(!state.diagnostic_active.load(Ordering::SeqCst));
+        assert!(state.reserve_diagnostic().is_ok());
     }
 
 }
