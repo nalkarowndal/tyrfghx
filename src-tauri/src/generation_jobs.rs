@@ -45,6 +45,7 @@ struct RunningJob {
     snapshot: Arc<Mutex<JobSnapshot>>,
     process: Arc<Mutex<Child>>,
     cancelling: Arc<AtomicBool>,
+    process_group: Arc<super::windows_process_job::ProcessJob>,
 }
 
 #[derive(Default)]
@@ -58,8 +59,10 @@ impl Drop for JobManager {
         if let Ok(mut guard) = self.current.lock() {
             if let Some(job) = guard.take() {
                 job.cancelling.store(true, Ordering::SeqCst);
-                if let Ok(mut child) = job.process.lock() {
-                    let _ = child.kill();
+                if job.process_group.terminate().is_err() {
+                    if let Ok(mut child) = job.process.lock() {
+                        let _ = child.kill();
+                    }
                 }
             }
         }
@@ -193,7 +196,8 @@ pub async fn start_local_generation(
         }
     }
 
-    let mut child = Command::new(python)
+    let mut command = Command::new(python);
+    command
         .arg("-s")
         .arg(repo.join("backend").join("generate_sdxl.py"))
         .args(["--checkpoint", &request.checkpoint_id,
@@ -213,9 +217,19 @@ pub async fn start_local_generation(
         .env_remove("PYTHONHOME")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Could not start the fixed Python interpreter: {e}"))?;
+        .stderr(Stdio::piped());
+    super::windows_process_job::prepare_command(&mut command);
+    let mut child = command.spawn()
+        .map_err(|e| format!("Could not start suspended Python interpreter: {e}"))?;
+    let group = match super::windows_process_job::ProcessJob::attach_and_resume(&mut child) {
+        Ok(group) => Arc::new(group),
+        Err(error) => {
+            // Fail closed: NEVER allow an unmonitored Python process.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
     let stderr = child.stderr.take().ok_or("Cannot capture subprocess diagnostics")?;
     let stderr_tail = Arc::new(Mutex::new(Vec::new()));
     let reader_tail = Arc::clone(&stderr_tail);
@@ -233,6 +247,7 @@ pub async fn start_local_generation(
     let worker_process = Arc::clone(&process);
     let worker_snapshot = Arc::clone(&snapshot);
     let worker_cancelled = Arc::clone(&cancelling);
+    let worker_group = Arc::clone(&group);
     thread::spawn(move || {
         let started = Instant::now();
         let mut timed_out = false;
@@ -247,8 +262,11 @@ pub async fn start_local_generation(
                 Ok(None) => {
                     if is_over_limit(started, MAX_JOB_RUNTIME) && !timed_out {
                         timed_out = true;
-                        if let Ok(mut child) = worker_process.lock() {
-                            let _ = child.kill();
+                        if worker_group.terminate().is_err() {
+                            // Best effort if Win32 Job Objects termination fails.
+                            if let Ok(mut child) = worker_process.lock() {
+                                let _ = child.kill();
+                            }
                         }
                         if let Ok(mut status) = worker_snapshot.lock() {
                             status.phase = "cancelling".into();
@@ -268,13 +286,20 @@ pub async fn start_local_generation(
         let stderr = stderr_tail.lock()
             .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
             .unwrap_or_default();
-        let (phase, message) = outcome_message(
+        // Python may exit while its spawned workers are still running.
+        // End the process group before announcing terminal completion.
+        let group_cleanup = worker_group.terminate();
+        let (mut phase, mut message) = outcome_message(
             exit_status.as_ref().is_some_and(|s| s.success()),
             &stderr,
             exit_status.as_ref().and_then(|s| s.code()),
             worker_cancelled.load(Ordering::SeqCst),
             timed_out,
         );
+        if group_cleanup.is_err() && phase == "succeeded" {
+            phase = "failed".into();
+            message = "Python은 종료됐으나 하위 프로세스 정리를 확인하지 못했습니다.".into();
+        }
         if let Ok(mut status) = worker_snapshot.lock() {
             status.elapsed_seconds = started.elapsed().as_secs();
             status.phase = phase;
@@ -282,7 +307,7 @@ pub async fn start_local_generation(
         }
     });
     let reply = snapshot.lock().map_err(|_| "Job state lock error")?.clone();
-    *guard = Some(RunningJob { snapshot, process, cancelling });
+    *guard = Some(RunningJob { snapshot, process, cancelling, process_group: group });
     Ok(reply)
 }
 
@@ -308,9 +333,11 @@ pub async fn cancel_local_generation(
     if status.job_id != job_id || status.phase != "running" {
         return Err("This job is not running or its ID is out of date".into());
     }
-    job.process.lock().map_err(|_| "Process lock error")?
-        .kill().map_err(|e| format!("Could not cancel the process: {e}"))?;
     job.cancelling.store(true, Ordering::SeqCst);
+    if let Err(error) = job.process_group.terminate() {
+        job.cancelling.store(false, Ordering::SeqCst);
+        return Err(error);
+    }
     status.phase = "cancelling".into();
     status.message = "종료 신호를 보냈습니다. 실제 프로세스 종료 확인 중입니다.".into();
     Ok(status.clone())
