@@ -1,8 +1,8 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { ImageSettings } from "./generationWorkspacePlan";
 
-export type JobPhase = "idle" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
-export type JobSnapshot = { job_id: number; phase: JobPhase; message: string };
+export type JobPhase = "idle" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "timed_out";
+export type JobSnapshot = { job_id: number; phase: JobPhase; message: string; elapsed_seconds: number; time_limit_seconds: number };
 
 /** Windows DEBUG builds only. No paths, executables or arbitrary command names cross IPC. */
 export async function startLocalGeneration(settings: ImageSettings, confirmed: boolean): Promise<JobSnapshot> {
