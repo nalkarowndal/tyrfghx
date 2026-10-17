@@ -3,10 +3,11 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M2-5 (offline Tauri model browsing preview).**
-> This is **not yet an operational AI image generator**. GPU inference (M3),
-> RTX 2060 SUPER 8GB performance verification, packaged Tauri runtime, and
-> actual native window testing remain outstanding.
+> **Current milestone: M3-1 (opt-in offline SDXL inference CLI preview).**
+> M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
+> GPU image has NOT been generated or benchmarked by this development workflow.
+> The Tauri image-generation button remains disabled; packaged backend
+> integration, driver/device validation, and native GUI testing are outstanding.
 
 ## What works in the codebase
 
@@ -28,6 +29,23 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
   recorded checksum and size/mtime snapshot changes, not live verification.
 - Linux and Windows Python tests and frontend tests in GitHub Actions;
   M2-4 also adds Windows Rust build/unit-test CI.
+
+## Experimental SDXL image generation (M3-1)
+
+On a machine with CUDA-enabled PyTorch, additional optional dependencies,
+an SDXL safetensors checkpoint and its offline pipeline configuration, run:
+
+```powershell
+python backend/generate_sdxl.py --checkpoint "checkpoints/model.safetensors" --prompt "An original watercolor landscape"
+```
+
+This is **dry run only**. To attempt one real local image, add `--execute`.
+No model or config is downloaded automatically. Only checkpoint files under
+the repository's `models/checkpoints` root are accepted. Images, if
+successfully generated, go to `outputs/` and do not overwrite existing files.
+
+See [M3 local inference setup, limits and GPU QA](docs/M3_LOCAL_INFERENCE.md).
+This CLI is not yet connected to the web/Tauri UI.
 
 ## Development quick start
 
@@ -74,6 +92,7 @@ Model files and local integrity registries are ignored by Git.
 ## Docs and verification
 
 - [M2 model catalog, metadata, import and integrity](docs/M2_MODEL_CATALOG.md)
+- [M3 offline SDXL CLI and hardware-validation guide](docs/M3_LOCAL_INFERENCE.md)
 - [M1 developer environment](docs/DEVELOPMENT.md)
 - Backend tests: `cd backend && python -m pytest -q`
 - Frontend: `npm run build && npm test`
