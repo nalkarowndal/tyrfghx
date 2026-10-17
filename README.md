@@ -3,10 +3,11 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-2 (image settings workspace + offline output previews).**
+> **Current milestone: M3-3 (Windows development-only single GPU job runner preview).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
-> The actual Tauri image-generation button remains disabled; packaged backend
+> Windows debug builds now expose a consent-gated local Python job runner;
+> release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
 
 ## What works in the codebase
@@ -34,11 +35,14 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 
 Open **이미지 생성** in the React/Tauri interface to select a checkpoint,
 enter prompts and seed/size settings, and run a **metadata-only input preflight**.
-This preflight is not a real CUDA/image test. The generate action is disabled.
+This preflight is not a real CUDA/image test. Windows Tauri DEBUG builds may start and cancel one GPU generation process
+only with an explicit consent checkbox. Release builds and browsers cannot
+start it.
 
 The Tauri view can preview up to four of the latest local PNG images generated
 by the separate CLI. Browser builds cannot read local output files; no generic
-filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md).
+filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
+[M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md).
 
 ## Experimental SDXL image generation (M3-1)
 
