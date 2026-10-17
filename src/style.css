@@ -9,3 +9,25 @@
 .compatibility{border-top:1px solid #343a4e;margin-top:32px;padding-top:12px}
 .compatibility-form .refresh-button{align-self:end;min-height:41px}
 .compatibility-result{border:1px solid #475575;background:#212b40;color:#e4edff;padding:14px;border-radius:9px;line-height:1.6}
+
+.generation-layout{width:100%;max-width:1300px;display:grid;grid-template-columns:minmax(320px,1fr) minmax(300px,1fr);gap:18px;align-items:start}
+.generation-panel{background:#171d2b;border:1px solid #353f52;border-radius:16px;padding:22px;min-width:0}
+.generation-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.generation-heading h2{margin:0}
+.generation-tag{font-size:12px;padding:6px 10px;background:#273753;border-radius:20px;color:#c9d9f2}
+.generation-fields,.generation-fields label{display:grid;gap:9px}
+.generation-fields{margin-top:20px;gap:15px}
+.generation-fields label{font-size:13px;font-weight:600;color:#d8dfee}
+.generation-fields select,.generation-fields input,.generation-fields textarea{width:100%;border:1px solid #465067;background:#111725;color:#e8eefa;border-radius:9px;padding:10px 12px;font:inherit;min-height:40px;min-width:0}
+.generation-fields textarea{resize:vertical;line-height:1.6}
+.generation-fields input:focus-visible,.generation-fields textarea:focus-visible,.generation-fields select:focus-visible{outline:2px solid #a8bcff;outline-offset:2px}
+.generation-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.generation-actions{display:flex;flex-wrap:wrap;gap:12px}
+.generation-actions button{flex:1;text-align:center;white-space:nowrap}
+.generation-preview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:15px 0}
+.generation-preview-grid figure{margin:0;background:#111723;border:1px solid #3d4457;border-radius:10px;overflow:hidden}
+.generation-preview-grid img{display:block;max-width:100%;width:100%;height:200px;object-fit:contain}
+.generation-preview-grid figcaption{font-size:10px;line-height:1.5;color:#b7c3d6;padding:8px;overflow-wrap:anywhere}
+.generation-panel code{overflow-wrap:anywhere}
+@media(max-width:1150px){.generation-layout{grid-template-columns:1fr}}
+@media(max-width:580px){.generation-panel{padding:15px}.generation-row{grid-template-columns:1fr}.generation-preview-grid{grid-template-columns:1fr}}
