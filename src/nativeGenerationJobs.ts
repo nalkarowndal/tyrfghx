@@ -27,3 +27,8 @@ export async function cancelLocalGeneration(jobId: number): Promise<JobSnapshot>
   if (!Number.isSafeInteger(jobId) || jobId < 1) throw new Error("유효한 실행 작업 ID가 필요합니다.");
   return invoke<JobSnapshot>("cancel_local_generation", { jobId });
 }
+
+export async function isLocalGenerationSupported(): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("local_generation_supported");
+}
