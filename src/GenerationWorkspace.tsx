@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
+import GpuDiagnosticsPanel from "./GpuDiagnosticsPanel";
 import type { ModelRecord } from "./api";
 import { DEFAULT_IMAGE_SETTINGS, preflightImageSettings, type ImageSettings } from "./generationWorkspacePlan";
 import { getNativeGenerationPreviews, type GenerationPreview } from "./nativeGenerationGallery";
@@ -105,8 +106,9 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   const canRun = desktop && runnerSupported && assessment.ok && consent && jobStatusLoaded && !jobBusy && !jobLoading;
   return <div className="generation-layout">
     <section className="generation-panel" aria-label="이미지 생성 설정">
-      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-4 · 작업 상태 및 제한시간</span></div>
+      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-7 · GPU 환경 진단</span></div>
       <p className="muted">Windows Tauri 개발판에서는 명시적으로 승인한 한 건의 로컬 SDXL 추론을 시작하거나 중지할 수 있습니다. 배포판과 웹 브라우저에서는 비활성화됩니다.</p>
+      <GpuDiagnosticsPanel supported={runnerSupported} busy={jobBusy || jobLoading} />
       <div className="generation-fields">
         <label>체크포인트
           <select aria-label="생성 체크포인트" value={settings.checkpointId} onChange={e => update("checkpointId", e.target.value)}>
@@ -159,7 +161,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
           <strong>작업 상태: {job?.phase ?? (jobStatusLoaded ? "idle" : "확인 중")}</strong>
           <p>{job?.message ?? "대기 중"}</p>
           <p>경과 시간: {job?.elapsed_seconds ?? 0}초 / 최대 {job?.time_limit_seconds ?? 1800}초</p>
-          <p>경과 시간은 실제 이미지 생성 진행률이 아닙니다. 시간 제한에 도달하면 종료를 시도하며 자식 프로세스 전체 종료는 아직 보장하지 않습니다.</p>
+          <p>경과 시간은 실제 이미지 생성 진행률이 아닙니다. Windows Job Objects는 일반적인 하위 프로세스 종료를 요청하지만, 모든 외부 프로세스나 GPU 자원 회수를 보장하지 않습니다.</p>
         </div>}
         {checked && <div role="status" className={assessment.ok ? "compatibility-result" : "model-error"}>
           <strong>{assessment.summary}</strong>
