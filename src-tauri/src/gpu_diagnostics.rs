@@ -12,7 +12,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, State};
+use tauri::State;
 
 const TIMEOUT: Duration = Duration::from_secs(25);
 const MAX_JSON_BYTES: usize = 16_384;
