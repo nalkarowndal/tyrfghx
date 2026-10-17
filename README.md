@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M2-4 (native Tauri import preview).**
+> **Current milestone: M2-5 (offline Tauri model browsing preview).**
 > This is **not yet an operational AI image generator**. GPU inference (M3),
 > RTX 2060 SUPER 8GB performance verification, packaged Tauri runtime, and
 > actual native window testing remain outstanding.
@@ -16,6 +16,9 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 - LoRA–checkpoint family comparison (metadata *suggestion*, not loading proof).
 - **Explicit local import via CLI** with a Tkinter desktop file picker, or
   `--source` for a path you select. Imports keep the source intact.
+- **Native Tauri desktop model catalog:** lists local models even when the
+  Python API is not running, including bounded safetensors header metadata and
+  registration-time integrity snapshot hints. It has no filesystem path inputs.
 - **Native Tauri desktop import button:** invokes a Rust file picker and copies
   locally. It accepts only a model category from the webview, never a path.
   The browser-only version disables this button.
@@ -62,8 +65,9 @@ python model_import.py --category checkpoints --verify "checkpoints/my-model.saf
 Accepted categories: `checkpoints`, `loras`, `vae`.
 The CLI chooser is independent from the newer **Tauri-native model import button**.
 During Tauri development both use the repository \`models\` directory.
-Release builds import to app-local-data \`models\`, but backend auto-start and
-shared production storage are not integrated yet.
+Release builds import and browse from the same app-local-data \`models\` directory
+using Tauri. Python API auto-start, model inference, and packaged backend integration
+are not implemented yet.
 Safetensors only; legacy CKPT is deliberately never imported or loaded.
 Model files and local integrity registries are ignored by Git.
 
