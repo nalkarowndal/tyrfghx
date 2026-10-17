@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-8 (bounded local PNG checksum + GPU allocator telemetry preview).**
+> **Current milestone: M3-9 (bounded PNG pixel decoding and SHA-256 verification).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -54,12 +54,14 @@ against the fixed local `outputs/` directory. Only the file name,
 independently checked SHA-256, seed, generation-call time and optional
 PyTorch CUDA allocator peaks are shown in the UI.
 
-A matching PNG signature and hash establishes **stored bytes consistency
-only**, not image quality or actual GPU compatibility. The UI clearly
+The M3-9 verifier additionally decodes PNG pixel data under resource limits
+and matches the requested resolution; that proves a decodable image was saved,
+**not** image quality, prompt fidelity or actual GPU compatibility. The UI clearly
 marks unavailable memory metrics, and invalid CLI output is a failed job.
 No generation API is exposed to browsers or Tauri release builds.
 
-See [M3-8 generation verification guide](docs/M3_VERIFIED_GENERATION_METRICS.md).
+See [M3-8 generation verification guide](docs/M3_VERIFIED_GENERATION_METRICS.md) and
+[M3-9 PNG structural QA](docs/M3_PNG_STRUCTURAL_QA.md).
 Actual hardware validation remains pending.
 
 ## Desktop GPU readiness panel (M3-7)
