@@ -1,0 +1,19 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="aiimage local API", version="0.1.0")
+app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"], allow_methods=["GET"], allow_headers=["*"])
+
+@app.get("/api/health")
+def health():
+    return {"ok": True}
+
+@app.get("/api/status")
+def status():
+    return {
+        "app": "aiimage", "version": "0.1.0", "mode": "foundation",
+        "engines": [
+            {"name": "Local PyTorch/Diffusers", "status": "unavailable", "note": "M3에서 GPU 추론 구현 예정"},
+            {"name": "ComfyUI (optional)", "status": "unavailable", "note": "연동되지 않음"},
+        ],
+    }
