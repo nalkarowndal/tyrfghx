@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
+from model_metadata import ModelFamily, infer_family, read_annotations
 
 MODEL_ROOT = Path(__file__).resolve().parent.parent / "models"
 MODEL_FOLDERS = {"checkpoints": "checkpoint", "loras": "lora", "vae": "vae"}
@@ -23,6 +24,11 @@ class ModelRecord(BaseModel):
     reported_architecture: str | None = None
     validation: Literal["metadata_only", "invalid_header", "blocked_legacy"]
     note: str
+    display_name: str | None = None
+    family: ModelFamily | None = None
+    family_source: Literal["header", "manual", "unknown"] = "unknown"
+    license: str | None = None
+    notes: str | None = None
 
 
 def _read_safetensors_architecture(path: Path, size: int) -> tuple[str | None, bool]:
@@ -61,6 +67,7 @@ def scan_models(root: Path = MODEL_ROOT) -> list[ModelRecord]:
     if root.is_symlink() or not root.is_dir():
         return []
     results: list[ModelRecord] = []
+    annotations = read_annotations(root)
     for dirname, category in MODEL_FOLDERS.items():
         folder = root / dirname
         if folder.is_symlink() or not folder.is_dir():
@@ -96,4 +103,20 @@ def scan_models(root: Path = MODEL_ROOT) -> list[ModelRecord]:
                 ))
             except OSError:
                 continue
+    for item in results:
+        # Display metadata never changes model weights or bypasses validation.
+        if item.file_format != "safetensors":
+            continue
+        annotation = annotations.get(item.id)
+        if annotation:
+            item.display_name = annotation.display_name
+            item.license = annotation.license
+            item.notes = annotation.notes
+        reported_family = infer_family(item.reported_architecture)
+        if annotation and annotation.family_override:
+            item.family = annotation.family_override
+            item.family_source = "manual"
+        elif reported_family:
+            item.family = reported_family
+            item.family_source = "header"
     return results
