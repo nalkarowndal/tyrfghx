@@ -21,6 +21,9 @@ export type ModelRecord = {
   family_source: "manual" | "header" | "unknown";
   license: string | null;
   notes: string | null;
+  integrity_state: "not_recorded" | "snapshot_unchanged" | "file_changed";
+  recorded_sha256: string | null;
+  potential_duplicate_ids: string[];
 };
 
 export async function getModels(signal?: AbortSignal): Promise<ModelRecord[]> {
