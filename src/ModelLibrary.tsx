@@ -60,9 +60,11 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
     </div>
     <div className="model-help">
       <strong>모델 추가 및 정보 등록</strong>
-      <p>파일을 <code>models/checkpoints</code>, <code>models/loras</code>, <code>models/vae</code>에 넣고 새로고침하세요.</p>
+      <p>Windows에서 파일 선택 창으로 등록하려면 <code>backend</code> 폴더에서 <code>python model_import.py --category checkpoints</code> 명령을 실행하세요. LoRA는 <code>--category loras</code>, VAE는 <code>--category vae</code>로 설정합니다.</p>
+      <p>이미 파일을 수동으로 넣었다면 <code>models/checkpoints</code>, <code>models/loras</code>, <code>models/vae</code> 폴더를 확인한 뒤 새로고침하세요.</p>
       <p>모델 계열을 알고 있다면 로컬 CLI에서 <code>python model_register.py loras/style.safetensors --family sdxl</code> 명령으로 정보를 등록할 수 있습니다 (backend 폴더에서 실행).</p>
-      <p>수동 설정은 모델 실행 가능 여부를 증명하지 않으며, 네트워크로 파일을 전송하지 않습니다.</p>
+      <p>무결성 검증은 백엔드 폴더에서 <code>python model_import.py --category checkpoints --verify "checkpoints/파일명.safetensors"</code> 명령을 실행하세요. 등록 시 저장된 해시와 실제 파일을 재비교합니다.</p>
+      <p>파일 선택은 로컬 CLI에서만 실행됩니다. 이 화면은 아직 파일 가져오기·검증 명령을 직접 실행하지 않으며, 모델 호환성도 보장하지 않습니다.</p>
     </div>
     {error && <p role="alert" className="model-error">모델 목록 오류: {error}</p>}
     <div className="model-filters">
@@ -94,6 +96,19 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
         </div>
         {model.family && <p className="muted">계열 정보 출처: {model.family_source === "manual" ? "사용자 수동 지정" : "모델 파일 헤더(미검증)"}</p>}
         {model.reported_architecture && <p className="muted">헤더 아키텍처: {model.reported_architecture}</p>}
+        <p className="muted">
+          무결성 기록: {model.integrity_state === "snapshot_unchanged"
+            ? "가져올 당시 크기·수정 시각 유지 (현재 SHA-256 재검사 아님)"
+            : model.integrity_state === "file_changed"
+              ? "파일 크기·수정 시각 변경 감지 — SHA-256 재검증 필요"
+              : "SHA-256 기록 없음 (수동 파일일 수 있음)"}
+        </p>
+        {model.recorded_sha256 && <p className="muted" title={model.recorded_sha256}>
+          등록 시 SHA-256: <code>{model.recorded_sha256}</code>
+        </p>}
+        {model.potential_duplicate_ids.length > 0 && <p className="muted">
+          중복 가능 파일: {model.potential_duplicate_ids.join(", ")} (등록 당시 기록 기준)
+        </p>}
         {model.license && <p className="muted">라이선스 (사용자 기록): {model.license}</p>}
         {model.notes && <p className="muted">메모: {model.notes}</p>}
         <p className="muted">{model.note}</p>
