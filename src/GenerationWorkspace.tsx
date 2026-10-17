@@ -94,11 +94,18 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
     }
   }
 
+  // Gallery refresh after a reported success; not evidence of GPU/PNG quality.
+  useEffect(() => {
+    if (desktop && job?.phase === "succeeded") {
+      setGalleryRefresh(n => n + 1);
+    }
+  }, [desktop, job?.job_id, job?.phase]);
+
   const jobBusy = job?.phase === "running" || job?.phase === "cancelling";
   const canRun = desktop && runnerSupported && assessment.ok && consent && jobStatusLoaded && !jobBusy && !jobLoading;
   return <div className="generation-layout">
     <section className="generation-panel" aria-label="이미지 생성 설정">
-      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-3 · Windows 개발판 작업 실행</span></div>
+      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-4 · 작업 상태 및 제한시간</span></div>
       <p className="muted">Windows Tauri 개발판에서는 명시적으로 승인한 한 건의 로컬 SDXL 추론을 시작하거나 중지할 수 있습니다. 배포판과 웹 브라우저에서는 비활성화됩니다.</p>
       <div className="generation-fields">
         <label>체크포인트
@@ -151,7 +158,8 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
         {desktop && <div role="status" className="compatibility-result">
           <strong>작업 상태: {job?.phase ?? (jobStatusLoaded ? "idle" : "확인 중")}</strong>
           <p>{job?.message ?? "대기 중"}</p>
-          <p>진행률 퍼센트는 아직 제공하지 않습니다. 중단을 요청한 경우 프로세스 종료를 확인합니다.</p>
+          <p>경과 시간: {job?.elapsed_seconds ?? 0}초 / 최대 {job?.time_limit_seconds ?? 1800}초</p>
+          <p>경과 시간은 실제 이미지 생성 진행률이 아닙니다. 시간 제한에 도달하면 종료를 시도하며 자식 프로세스 전체 종료는 아직 보장하지 않습니다.</p>
         </div>}
         {checked && <div role="status" className={assessment.ok ? "compatibility-result" : "model-error"}>
           <strong>{assessment.summary}</strong>
