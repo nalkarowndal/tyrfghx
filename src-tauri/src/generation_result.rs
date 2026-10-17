@@ -12,7 +12,8 @@ use std::{
 };
 
 pub const MAX_OUTPUT_JSON: usize = 16 * 1024;
-const MAX_PNG_SIZE: u64 = 32 * 1024 * 1024;
+const MAX_PNG_SIZE: u64 = 8 * 1024 * 1024;
+const MAX_PIXEL_BYTES: usize = 16 * 1024 * 1024;
 const MAX_REPORTED_VRAM: u64 = 256 * 1024 * 1024 * 1024;
 const PNG_MAGIC: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
@@ -26,6 +27,8 @@ pub struct VerifiedResult {
     pub peak_reserved_bytes: Option<u64>,
     pub measurement: String,
     pub validation: String,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Deserialize)]
@@ -58,6 +61,37 @@ fn generated_png_name(name: &str) -> bool {
 fn valid_digest(hash: &str) -> bool {
     hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())
 }
+
+/// Decode one actual PNG frame under strict memory/dimension limits.
+/// A header and a matching SHA-256 alone are insufficient: arbitrary bytes
+/// could be written by the subprocess and hashed. This checks that the
+/// image data itself can be decoded as a PNG, not its artistic quality.
+fn decode_png(path: &Path) -> Result<(u32, u32), String> {
+    let file = File::open(path).map_err(|_| "PNG 디코딩을 위해 파일을 열 수 없습니다.")?;
+    let mut limits = png::Limits::default();
+    limits.bytes = MAX_PIXEL_BYTES;
+    let decoder = png::Decoder::new_with_limits(BufReader::new(file), limits);
+    let mut reader = decoder.read_info()
+        .map_err(|_| "PNG 파일의 헤더 또는 메타데이터가 손상되었습니다.")?;
+    let info = reader.info();
+    let (width, height) = (info.width, info.height);
+    if !(1..=1024).contains(&width) || !(1..=1024).contains(&height) ||
+       info.animation_control.is_some() {
+        return Err("허용되지 않은 이미지 해상도 또는 애니메이션 PNG입니다.".into());
+    }
+    let capacity = reader.output_buffer_size().ok_or("PNG 디코딩 버퍼 크기를 계산할 수 없습니다.")?;
+    if capacity == 0 || capacity > MAX_PIXEL_BYTES {
+        return Err("PNG 디코딩 메모리 상한을 초과했습니다.".into());
+    }
+    let mut pixels = vec![0u8; capacity];
+    let frame = reader.next_frame(&mut pixels)
+        .map_err(|_| "PNG 압축 데이터 또는 무결성 검증에 실패했습니다.")?;
+    if frame.width != width || frame.height != height || frame.buffer_size() > capacity {
+        return Err("PNG 프레임의 크기나 디코딩 길이가 올바르지 않습니다.".into());
+    }
+    Ok((width, height))
+}
+
 
 pub fn validate_report(bytes: &[u8], root: &Path, seed: u64) -> Result<VerifiedResult, String> {
     if bytes.is_empty() || bytes.len() > MAX_OUTPUT_JSON {
@@ -136,6 +170,8 @@ pub fn validate_report(bytes: &[u8], root: &Path, seed: u64) -> Result<VerifiedR
     if !actual_hash.eq_ignore_ascii_case(&output.metrics.output_png_sha256) {
         return Err("생성 PNG의 SHA-256 값이 실행기 보고와 일치하지 않습니다.".into());
     }
+    // Do not mark an image as valid until its compressed pixels decode.
+    let (width, height) = decode_png(&actual)?;
     Ok(VerifiedResult {
         file_name,
         png_sha256: actual_hash,
@@ -144,7 +180,9 @@ pub fn validate_report(bytes: &[u8], root: &Path, seed: u64) -> Result<VerifiedR
         peak_allocated_bytes: output.metrics.gpu_peak_allocated_bytes,
         peak_reserved_bytes: output.metrics.gpu_peak_reserved_bytes,
         measurement: output.metrics.gpu_memory_measurement,
-        validation: "png_signature_and_sha256_verified".into(),
+        validation: "png_decoded_and_sha256_verified".into(),
+        width,
+        height,
     })
 }
 
@@ -158,8 +196,14 @@ mod tests {
         let file_name = format!("aiimage-{}.png", "a".repeat(32));
         let output = dir.path().join(file_name);
         let mut f = File::create(&output).unwrap();
-        f.write_all(PNG_MAGIC).unwrap();
-        f.write_all(b"synthetic bytes; not a decoded image").unwrap();
+        drop(f);
+        let file = File::create(&output).unwrap();
+        let mut encoder = png::Encoder::new(file, 2, 2);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[255u8; 16]).unwrap();
+        drop(writer);
         let hash = format!("{:x}", Sha256::digest(fs::read(&output).unwrap()));
         let report = serde_json::json!({
             "mode": "generated_unverified",
@@ -183,7 +227,8 @@ mod tests {
         let result = validate_report(&report, dir.path(), 42).unwrap();
         assert_eq!(result.seed, 42);
         assert_eq!(result.peak_reserved_bytes, Some(3_200_000_000));
-        assert_eq!(result.validation, "png_signature_and_sha256_verified");
+        assert_eq!(result.validation, "png_decoded_and_sha256_verified");
+        assert_eq!((result.width, result.height), (2, 2));
     }
 
     #[test] fn rejects_tampering_wrong_seed_and_unexpected_schema() {
@@ -215,6 +260,18 @@ mod tests {
         assert!(validate_report(&report, dir.path(), 42).is_err());
         fs::write(&path, [PNG_MAGIC.as_slice(), b"different content"].concat()).unwrap();
         assert!(validate_report(&report, dir.path(), 42).is_err());
+    }
+
+    #[test]
+    fn correctly_hashed_but_malformed_png_is_not_a_valid_image() {
+        let (dir, report) = fixture();
+        let mut value: serde_json::Value = serde_json::from_slice(&report).unwrap();
+        let path = PathBuf::from(value["output"].as_str().unwrap());
+        let corrupt = [PNG_MAGIC.as_slice(), b"pretend pixels"].concat();
+        fs::write(&path, &corrupt).unwrap();
+        value["metrics"]["output_png_sha256"] =
+            serde_json::json!(format!("{:x}", Sha256::digest(&corrupt)));
+        assert!(validate_report(&serde_json::to_vec(&value).unwrap(), dir.path(), 42).is_err());
     }
 
     #[test] fn allows_unavailable_allocator_without_claiming_vram_measured() {
