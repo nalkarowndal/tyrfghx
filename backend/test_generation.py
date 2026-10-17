@@ -176,3 +176,51 @@ def test_output_not_overwritten(tmp_path):
     result = save_image(FakeImage(), output)
     assert result != sentinel
     assert sentinel.read_bytes() == b"keep"
+
+
+def test_benchmark_summary_measures_png_checksum_with_mock_gpu(tmp_path):
+    from hashlib import sha256
+    from generate_sdxl import summarize_runtime_metrics
+
+    path = tmp_path / "generated.png"
+    path.write_bytes(b"mock png bytes")
+
+    class FakeCudaMetrics:
+        def is_available(self):
+            return True
+        def synchronize(self):
+            self.synced = True
+        def max_memory_allocated(self):
+            return 100_000_000
+        def max_memory_reserved(self):
+            return 120_000_000
+
+    cuda = FakeCudaMetrics()
+    result = summarize_runtime_metrics(path, 1.2345, cuda)
+    assert result["output_png_sha256"] == sha256(b"mock png bytes").hexdigest()
+    assert result["elapsed_seconds"] == 1.234
+    assert result["gpu_memory_measurement"] == "torch_cuda_allocator"
+    assert result["gpu_peak_allocated_bytes"] == 100_000_000
+    assert result["gpu_peak_reserved_bytes"] == 120_000_000
+    assert cuda.synced is True
+    assert "not total VRAM" in result["caveat"]
+
+
+def test_telemetry_failure_does_not_hide_saved_image(tmp_path):
+    from generate_sdxl import summarize_runtime_metrics
+    path = tmp_path / "generated.png"
+    path.write_bytes(b"saved")
+    class BrokenCuda:
+        def is_available(self):
+            raise RuntimeError("driver error")
+    metrics = summarize_runtime_metrics(path, 2.0, BrokenCuda())
+    assert metrics["gpu_memory_measurement"] == "measurement_failed"
+    assert len(metrics["output_png_sha256"]) == 64
+
+
+def test_metrics_flag_refuses_dry_run_before_any_model_access():
+    from generate_sdxl import main
+    with pytest.raises(SystemExit) as exc:
+        main(["--checkpoint", "checkpoints/none.safetensors",
+              "--prompt", "test", "--metrics"])
+    assert exc.value.code == 2
