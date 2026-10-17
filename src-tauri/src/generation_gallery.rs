@@ -100,7 +100,9 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         let source = outside.path().join(format!("aiimage-{}.png", "f".repeat(32)));
         fs::write(&source, PNG_SIGNATURE).unwrap();
+        #[cfg(windows)]
         let linked = dir.path().join(source.file_name().unwrap());
+        #[cfg(windows)]
         if std::os::windows::fs::symlink_file(&source, &linked).is_ok() {
             assert!(list_previews(dir.path()).unwrap().is_empty());
         }
