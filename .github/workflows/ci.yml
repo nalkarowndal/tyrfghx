@@ -35,3 +35,11 @@ jobs:
         working-directory: backend
       - run: python -m pytest -q
         working-directory: backend
+  desktop-rust-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Rust toolchain
+        run: rustc --version
+      - name: Build and test Tauri native import code
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
