@@ -151,3 +151,31 @@ are never loaded into torch, nor sent through an HTTP upload endpoint.
   filesystem permissions and packaging remain subject to user-device QA.
 
 The preview is intentionally not a complete model-manager release.
+
+## M2-5 — offline native model catalog (Tauri)
+
+Tauri now supports read-only `list_local_models` with **no source-path
+argument**. This command discovers only direct files within the same root used
+by the native importer: `models/checkpoints`, `models/loras`, `models/vae`.
+
+The native command reads at most 1 MiB from each safetensors JSON header and
+up to 1 MiB per annotations/integrity registry; it ignores symlinked files.
+No weights are deserialized or transferred through frontend IPC.
+
+- In a Tauri window, browsing and approximate checkpoint/LoRA family checks
+  work even if the Python HTTP backend is stopped.
+- In a plain web browser, the existing local Python API remains necessary.
+- In a development build, Tauri uses the repo-local `models` root.
+- In a release build, Tauri uses `app_local_data_dir()/models` both for
+  import and listing. Python auto-start and inference are **not** implemented;
+  no actual AI generation is available.
+- Family match is a **metadata suggestion**, never a promise that a model or
+  LoRA can load or produce images. Snapshot freshness is a file size/mtime
+  comparison, not live cryptographic verification.
+- Tauri code is verified by Windows `cargo test --lib` in CI; a real
+  interactive file-picker/UI test on Windows remains separate work.
+
+Further tasks: integrate a signed, packaged and user-controlled Python
+inference backend, align its release-time storage root, secure local service
+authentication, exercise end-to-end UI tests, and validate supported model
+architectures on RTX 2060 SUPER 8GB before making generation features active.
