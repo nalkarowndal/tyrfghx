@@ -7,6 +7,7 @@ mod generation_result;
 mod windows_process_job;
 mod gpu_diagnostics;
 mod vram_safety;
+mod backend_runtime;
 
 // The embedded HTTP test server must never activate by a Cargo feature alone.
 // Validate the complete opt-in policy independently of Tauri or network I/O.
@@ -53,7 +54,8 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(generation_jobs::JobManager::default())
-        .invoke_handler(tauri::generate_handler![model_import::import_local_model, model_catalog::list_local_models, model_integrity::verify_local_model_hash, generation_gallery::list_generation_previews, generation_jobs::local_generation_supported, generation_jobs::start_local_generation, generation_jobs::check_local_generation_vram, generation_jobs::generation_job_status, generation_jobs::cancel_local_generation, gpu_diagnostics::inspect_local_gpu])
+        .manage(backend_runtime::BackendState::default())
+        .invoke_handler(tauri::generate_handler![backend_runtime::bundled_backend_enabled, backend_runtime::backend_status, backend_runtime::restart_backend, model_import::import_local_model, model_catalog::list_local_models, model_integrity::verify_local_model_hash, generation_gallery::list_generation_previews, generation_jobs::local_generation_supported, generation_jobs::start_local_generation, generation_jobs::check_local_generation_vram, generation_jobs::generation_job_status, generation_jobs::cancel_local_generation, gpu_diagnostics::inspect_local_gpu])
         ;
     // No embedded HTTP server exists in normal builds (feature absent).
     // Even in a specially compiled E2E build, activation requires two
@@ -69,6 +71,9 @@ pub fn run() {
         }
     };
     builder
-        .run(tauri::generate_context!())
-        .expect("failed to run aiimage");
+        .build(tauri::generate_context!())
+        .expect("failed to build aiimage")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) { backend_runtime::shutdown(app); }
+        });
 }

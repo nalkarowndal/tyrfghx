@@ -1,0 +1,59 @@
+name: Windows packaged backend QA
+on:
+  push:
+    branches: [feat/m3-39-windows-backend-bundle]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: backend-bundle-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  packaged-backend:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --no-fund
+      - name: Build frozen read-only API with hashed Windows dependencies
+        shell: pwsh
+        run: ./scripts/build-windows-backend.ps1
+      - name: Exercise frozen executable auth, EOF, duplicate ownership and recovery
+        shell: pwsh
+        run: |
+          $env:AIIMAGE_TEST_BACKEND = Join-Path $PWD 'src-tauri/backend-dist/aiimage-backend/aiimage-backend.exe'
+          python -m unittest discover -s backend -p test_bundled_server.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'frozen_backend_smoke_failed' }
+      - name: Test real Rust manager against the frozen backend
+        shell: pwsh
+        run: |
+          $env:AIIMAGE_TEST_BACKEND = Join-Path $PWD 'src-tauri/backend-dist/aiimage-backend/aiimage-backend.exe'
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --locked --features bundled-backend
+          if ($LASTEXITCODE -ne 0) { throw 'rust_suite_failed' }
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --locked --features bundled-backend backend_runtime::tests::frozen_backend_lifecycle -- --ignored --exact
+          if ($LASTEXITCODE -ne 0) { throw 'rust_frozen_lifecycle_failed' }
+      - name: Verify production dependency isolation
+        shell: pwsh
+        run: |
+          $tree = cargo tree --manifest-path src-tauri/Cargo.toml --locked --features bundled-backend --edges normal
+          if ($LASTEXITCODE -ne 0 -or $tree -match 'tauri-plugin-wdio-webdriver') { throw 'production_dependency_isolation_failed' }
+          ./scripts/windows-nsis-bundle-qa.ps1
+      - name: Build unsigned NSIS with full API payload
+        run: npm run tauri -- build --config src-tauri/tauri.backend-qa.conf.json --bundles nsis
+      - name: Verify installer and lockfile
+        shell: pwsh
+        run: |
+          ./scripts/windows-nsis-bundle-qa.ps1 -VerifyBundle
+          git diff --exit-code -- src-tauri/Cargo.lock package-lock.json
+          if ($LASTEXITCODE -ne 0) { throw 'lockfile_changed' }
+      - name: Installed GUI authentication, normal/crash cleanup, uninstall preservation
+        shell: pwsh
+        run: ./scripts/windows-installed-backend-qa.ps1
+      # No artifact upload, release, signing, model download or GPU execution.
