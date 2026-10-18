@@ -3,13 +3,24 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-25 (synthetic native model-flow integration QA and owner Windows UI checklist).**
+> **Current milestone: M3-26 (opt-in Windows release UI WebDriver smoke and protocol regression tests).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-26: optional real Windows UI navigation E2E
+
+A new native release-mode Windows `tauri-driver` script exercises actual
+desktop navigation and input-preflight/error display without any GPU run.
+Regular CI uses a fake W3C WebDriver server; an additional explicitly triggered
+GitHub Actions workflow can build and test a real Windows Tauri **release**
+binary on an ephemeral runner. A passing protocol test is NOT evidence of
+Windows GUI acceptance. For the opt-in workflow, see
+[M3-26 Windows UI E2E](docs/M3_WINDOWS_UI_E2E.md). Actual owner hardware
+qualification and inference remain outstanding.
 
 ## M3-25: local model import → catalog → SHA-256 integration QA
 
