@@ -3,13 +3,24 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-35 (embedded HTTP WebDriver runtime opt-in negative tests).**
+> **Current milestone: M3-36 (Rust Cargo.lock resolution and locked CI preparation).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-36: resolve and track the real Cargo dependency lockfile
+
+M3-35's Windows GUI tests and all ordinary CI jobs passed. M3-36 adds an
+**explicitly authorized same-repository Cargo lockfile generation workflow**
+to resolve dependencies using the real Cargo toolchain, verify both default
+and embedded E2E dependency graphs and commit **only**
+`src-tauri/Cargo.lock`. After actual generation, Rust CI can require
+`--locked` and reject unreviewed dependency changes. The missing lockfile
+must not be invented by editing TOML manually. See
+[M3-36 Rust locked builds](docs/M3_RUST_LOCKED_BUILDS.md).
 
 ## M3-35: runtime consent guard verified independently of production binary
 
