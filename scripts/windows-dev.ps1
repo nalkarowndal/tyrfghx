@@ -67,11 +67,15 @@ if (-not $isWin) {
 $node = Get-Executable "node.exe"
 $nodeVersion = Get-CommandVersion $node @("--version")
 $nodeMajor = 0
-if ($nodeVersion -match '^v(\d+)\.') { $nodeMajor = [int]$Matches[1] }
-if ($nodeMajor -ge 20) {
-    Add-Check "node" "ready" ("Node.js " + $nodeVersion + " available (20+).") $true
+$nodeMinor = 0
+if ($nodeVersion -match '^v(\d+)\.(\d+)\.') {
+    $nodeMajor = [int] $Matches[1]
+    $nodeMinor = [int] $Matches[2]
+}
+if ($nodeMajor -gt 22 -or ($nodeMajor -eq 22 -and $nodeMinor -ge 12)) {
+    Add-Check "node" "ready" ("Node.js " + $nodeVersion + " available (22.12+).") $true
 } else {
-    Add-Check "node" "missing" "Install Node.js 20+; Node.js 22 is the CI-tested version." $true
+    Add-Check "node" "missing" "Install Node.js 22.12+ for Vitest 5 and Vite 6.4." $true
 }
 
 $npm = Get-Executable "npm.cmd"
