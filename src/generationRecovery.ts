@@ -45,7 +45,7 @@ const RECOVERY: Record<GenerationFailureCode, RecoveryAdvice> = {
   process_cleanup_failed: {
     title: "프로세스 정리 확인 실패",
     explanation: "Python 생성 작업의 하위 프로세스 종료를 확인하지 못했습니다.",
-    nextStep: "Windows 작업 관리자에서 생성 프로세스가 남아 있는지 확인하고 재실행 여부를 판단하세요.",
+    nextStep: "Windows 작업 관리자에서 생성 관련 프로세스가 남아 있는지 확인하세요. 안전을 위해 GPU 작업을 차단했으므로 정리 상태를 확인하고 앱을 다시 시작하세요.",
     offerSafePreset: false,
   },
   image_verification_failed: {
