@@ -24,6 +24,11 @@ from gpu_diagnostics import inspect_gpu
 SCHEMA_VERSION = 1
 SAFE_PNG_NAME = re.compile(r"aiimage-[0-9a-f]{32}\.png\Z")
 MAX_SIDE = 1024
+GIB = 1024 ** 3
+MIN_FREE_VRAM_BYTES = 4 * GIB
+MIN_TOTAL_VRAM_BYTES = 6 * GIB
+LOW_VRAM_MAX_PIXELS = 768 * 768
+MAX_VRAM_BYTES = 256 * GIB
 
 # Visual quality, actual total VRAM consumption and Windows process-tree
 # cleanup cannot be established by an image-generation function's return.
@@ -43,6 +48,7 @@ def _base_report() -> dict[str, Any]:
         "status": "not_started",
         "offline_only": True,
         "gpu": {"status": "not_checked"},
+        "memory_policy": {"status": "not_checked", "acknowledged": False},
         "model": {"sdxl_metadata": "not_checked", "config_found": False},
         "generation": {"status": "not_run"},
         "manual_checks": dict(MANUAL_CHECKS),
@@ -67,20 +73,80 @@ def _classify_failure(reason: Exception) -> str:
 
 
 def _gpu_summary(raw: dict[str, Any]) -> dict[str, Any]:
+    """Bound device values before displaying them or making a safety decision."""
+    if not isinstance(raw, dict):
+        return {"status": "cuda_probe_error"}
     status = raw.get("status", "cuda_probe_error")
     if status != "ready_for_trial":
-        return {"status": str(status)[:40]}
+        allowed = {
+            "torch_missing", "torch_import_error", "cpu_only_torch",
+            "unsupported_backend", "cuda_unavailable", "cuda_probe_error",
+            "unavailable",
+        }
+        return {"status": status if status in allowed else "cuda_probe_error"}
     gpu = raw.get("gpu")
     if not isinstance(gpu, dict):
         return {"status": "cuda_probe_error"}
+    try:
+        total = gpu["total_vram_bytes"]
+        free = gpu["free_vram_bytes_at_check"]
+        if type(total) is not int or type(free) is not int:
+            return {"status": "cuda_probe_error"}
+        if not 0 <= free <= total <= MAX_VRAM_BYTES or total == 0:
+            return {"status": "cuda_probe_error"}
+        index = gpu.get("index", 0)
+        if type(index) is not int or not 0 <= index <= 16:
+            return {"status": "cuda_probe_error"}
+    except (KeyError, TypeError, ValueError):
+        return {"status": "cuda_probe_error"}
+    # Do not repeat arbitrary diagnostic metadata, local filesystem paths or
+    # device-defined multiline text in the sanitized acceptance report.
+    def safe_label(text: Any, limit: int) -> str:
+        value = str(text)
+        return "".join(c for c in value if c.isprintable() and c not in "\\/:").strip()[:limit]
     return {
         "status": "ready_for_trial",
-        "name": str(gpu.get("name", "unknown"))[:120],
-        "compute_capability": str(gpu.get("compute_capability", "unknown"))[:12],
-        "total_vram_bytes": int(gpu.get("total_vram_bytes", 0)),
-        "free_vram_bytes_at_check": int(gpu.get("free_vram_bytes_at_check", 0)),
-        "torch_version": str(raw.get("torch_version", "unknown"))[:96],
-        "torch_cuda_build": str(raw.get("torch_cuda_build", "unknown"))[:64],
+        "name": safe_label(gpu.get("name", "unknown"), 120),
+        "compute_capability": safe_label(gpu.get("compute_capability", "unknown"), 12),
+        "total_vram_bytes": total,
+        "free_vram_bytes_at_check": free,
+        "torch_version": safe_label(raw.get("torch_version") or "unknown", 96),
+        "torch_cuda_build": safe_label(raw.get("torch_cuda_build") or "unknown", 64),
+    }
+
+
+def evaluate_memory_policy(
+    settings: GenerationSettings, gpu: dict[str, Any],
+    *, acknowledge_vram_risk: bool = False,
+) -> dict[str, Any]:
+    """Conservative trial heuristics, NOT an SDXL compatibility guarantee.
+
+    Acknowledgement never bypasses missing CUDA or a nonsensical device
+    report. Thresholds are deliberately geared to an 8GiB Windows card.
+    """
+    if gpu.get("status") != "ready_for_trial":
+        return {"status": "gpu_not_ready", "acknowledged": False}
+    total = gpu["total_vram_bytes"]
+    free = gpu["free_vram_bytes_at_check"]
+    low_total = total < MIN_TOTAL_VRAM_BYTES
+    low_free = free < MIN_FREE_VRAM_BYTES
+    high_resolution = total <= 8 * GIB and settings.width * settings.height > LOW_VRAM_MAX_PIXELS
+    reasons = [
+        name for name, active in (
+            ("total_vram_under_6gib", low_total),
+            ("free_vram_under_4gib", low_free),
+            ("high_resolution_on_8gib", high_resolution),
+        ) if active
+    ]
+    return {
+        "status": "allowed_with_acknowledged_risk" if reasons and acknowledge_vram_risk else
+                  "blocked" if reasons else "conservative_trial_allowed",
+        "acknowledged": bool(reasons and acknowledge_vram_risk),
+        "reasons": reasons,
+        "suggested_width": 512,
+        "suggested_height": 512,
+        "suggested_steps": 15,
+        "safety_note": "These checks are heuristics, not proof that inference will fit VRAM.",
     }
 
 
@@ -132,6 +198,7 @@ def run_acceptance(
     execute: bool = False,
     confirmed: bool = False,
     inspect: bool = False,
+    acknowledge_vram_risk: bool = False,
     gpu_inspector: Callable[[], dict[str, Any]] | None = None,
     runner: Callable[..., Path] | None = None,
     verifier: Callable[[Path, Path, int, int], dict[str, Any]] | None = None,
@@ -164,12 +231,23 @@ def run_acceptance(
         report["gpu"] = _gpu_summary(raw)
     except Exception:
         report["gpu"] = {"status": "cuda_probe_error"}
+    policy = evaluate_memory_policy(
+        settings, report["gpu"], acknowledge_vram_risk=acknowledge_vram_risk and confirmed and execute,
+    )
+    report["memory_policy"] = policy
     if not execute:
         report["status"] = "gpu_probe_only"
         return report
     if report["gpu"]["status"] != "ready_for_trial":
         report["status"] = "gpu_not_ready"
         return report
+    if policy["status"] == "blocked":
+        report["status"] = "vram_safety_blocked"
+        return report
+    if policy["status"] == "allowed_with_acknowledged_risk":
+        report["warnings"].append(
+            "VRAM 부족 또는 고해상도 위험을 사용자가 명시적으로 수락했습니다. 생성 성공은 보장되지 않습니다."
+        )
 
     # No heavy inference dependencies are imported before explicit consent
     # AND a successful local model/config + CUDA preflight.
@@ -231,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--inspect-gpu", action="store_true", help="Inspect CUDA without loading a checkpoint")
     parser.add_argument("--execute", action="store_true", help="Explicit actual SDXL generation attempt")
     parser.add_argument("--confirm-gpu", action="store_true", help="Consent required with --execute")
+    parser.add_argument("--acknowledge-vram-risk", action="store_true",
+                        help="Extra acknowledgement to attempt inference with low GPU memory or high 8GiB-card resolution.")
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--height", type=int, default=512)
     parser.add_argument("--steps", type=int, default=15)
@@ -239,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.execute and not args.confirm_gpu:
         parser.error("--execute also requires --confirm-gpu")
+    if args.acknowledge_vram_risk and not (args.execute and args.confirm_gpu):
+        parser.error("--acknowledge-vram-risk requires --execute --confirm-gpu")
     if args.execute and not args.prompt.strip():
         parser.error("--execute also requires --prompt")
     try:
@@ -258,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
     report = run_acceptance(
         settings, execute=args.execute, confirmed=args.confirm_gpu,
         inspect=args.inspect_gpu,
+        acknowledge_vram_risk=args.acknowledge_vram_risk,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["status"] in {
