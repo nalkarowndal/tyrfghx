@@ -103,11 +103,14 @@ def _gpu_summary(raw: dict[str, Any]) -> dict[str, Any]:
     # device-defined multiline text in the sanitized acceptance report.
     def safe_label(text: Any, limit: int) -> str:
         value = str(text)
-        # Device labels should be simple product/version names, not paths,
-        # shell fragments, or driver error payloads with personal details.
-        if not value or any(c in value for c in "\\/:\\n\\r\\t") or not re.fullmatch(r"[\\w .()+-]+", value):
+        # Reject path-like or multiline values rather than returning fragments
+        # of potential user filenames within untrusted driver-provided text.
+        if (not value or
+            any(c in value for c in ("\\", "/", ":", "\n", "\r", "\t")) or
+            not re.fullmatch(r"[\w .()+-]+", value)):
             return "unknown"
         return value[:limit]
+
     return {
         "status": "ready_for_trial",
         "name": safe_label(gpu.get("name", "unknown"), 120),
