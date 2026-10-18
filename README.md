@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-20 (independently verify local PNG bytes against owner hardware QA evidence).**
+> **Current milestone: M3-21 (native-validated local PNG gallery inspector and zoom).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,23 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Inspect generated images in the desktop gallery (M3-21)
+
+The existing Tauri read-only PNG gallery now displays native-decoded
+dimensions and lets you open a **larger inline detail inspector**.
+Select a thumbnail, inspect at 50%/100%/200% size, switch between
+existing locally verified images, and close with Escape. The inspector
+supports normal keyboard controls and scrolls large images without
+opening new windows or adding filesystem access.
+
+No additional GPU inference, model loading, path selection, prompt
+logging, image writing, downloading or remote API was introduced.
+The native validator still limits filenames, image size, read scope
+and gallery count. Preview does **not** certify visual quality or
+that the image came from the claimed GPU.
+
+See [M3-21 gallery image inspector](docs/M3_GALLERY_IMAGE_INSPECTOR.md).
 
 ## Independently verify generated PNG bytes during owner QA (M3-20)
 
