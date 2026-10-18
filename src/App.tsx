@@ -14,6 +14,7 @@ export default function App() {
   const [active, setActive] = useState(tools[0]);
   const [models, setModels] = useState<ModelRecord[]>([]);
   const [modelsError, setModelsError] = useState("");
+  const [modelsLoaded, setModelsLoaded] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const desktopApp = isTauri();
@@ -34,10 +35,12 @@ export default function App() {
           // Never retain a usable checkpoint while the new snapshot is unknown.
           setModels([]);
           setModelsError("");
+          setModelsLoaded(false);
           setLoadingModels(true);
         },
-        onLoaded: items => setModels(items),
+        onLoaded: items => { setModels(items); setModelsLoaded(true); },
         onFailed: safeMessage => {
+          setModelsLoaded(false);
           setModels([]);
           setModelsError(safeMessage);
         },
@@ -49,6 +52,7 @@ export default function App() {
 
   function requestCatalogRefresh() {
     // Clear synchronously on click, not only later when the effect runs.
+    setModelsLoaded(false);
     setModels([]);
     setModelsError("");
     setLoadingModels(true);
@@ -57,6 +61,7 @@ export default function App() {
 
   function selectTool(tool: string) {
     if (tool !== active && (tool === "모델 관리" || tool === "이미지 생성")) {
+      setModelsLoaded(false);
       setModels([]);
       setModelsError("");
       // Retrying a browser catalog request is allowed even if /api/status previously failed.
@@ -71,7 +76,7 @@ export default function App() {
     <aside className="sidebar"><h1>aiimage</h1><p className="muted">Local Creative Studio</p>
       <nav aria-label="작업 도구">{tools.map(t => <button type="button" key={t} className={active === t ? "selected" : ""} aria-current={active === t ? "page" : undefined} onClick={() => selectTool(t)}>{t}</button>)}</nav>
     </aside>
-    <main><header><strong>{active}</strong><span className="state">{status ? "Python API 연결됨" : desktopApp ? "Tauri 모델 관리 사용 가능 · Python API 미연결" : error ? "백엔드 연결 안 됨" : "연결 확인 중"}</span></header>
+    <main><header><strong>{active}</strong><span className="state">{status ? "Python API 연결됨" : desktopApp ? "Tauri 모델 관리 사용 가능 · Python API 미연결" : modelsLoaded ? "모델 API 연결됨 · 상태 API 확인 필요" : error ? "백엔드 연결 안 됨" : "연결 확인 중"}</span></header>
       {active === "이미지 생성"
         ? <section className="workspace model-workspace"><GenerationWorkspace models={availableModels} loadingModels={loadingModels} modelsError={modelsError} onRefreshModels={requestCatalogRefresh} /></section>
         : active === "모델 관리"
