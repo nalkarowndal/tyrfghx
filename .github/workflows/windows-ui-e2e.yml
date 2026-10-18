@@ -29,6 +29,11 @@ jobs:
         run: node --test scripts/windows-ui-e2e.test.mjs
       - name: Compile GPU-disabled Tauri release binary (no installer)
         run: npm run tauri -- build --no-bundle
+      - name: Independently probe GPU-disabled release window startup
+        shell: pwsh
+        env:
+          AIIMAGE_E2E_APP: ${{ github.workspace }}\src-tauri\target\release\aiimage.exe
+        run: ./scripts/windows-release-window-probe.ps1 -Application $env:AIIMAGE_E2E_APP
       - name: Install native WebDriver (official Tauri documented approach)
         run: cargo install tauri-driver --locked
       - name: Resolve Edge WebDriver for Windows
