@@ -8,7 +8,7 @@ with shipping an installer or completing actual CUDA/RTX QA.
 
 Prerequisites on Windows 10/11:
 
-- Node.js 20 or later (GitHub CI currently uses **Node 22**) and npm.
+- Node.js **22.12 or later** (required by current Vitest 5 and Vite 6.4) and npm; GitHub CI uses **Node 22**.
 - Stable Rust with an **MSVC target** and Cargo.
 - Microsoft Visual Studio C++ Build Tools, with
   **Desktop development with C++** selected.
@@ -40,13 +40,15 @@ proof** the desktop GUI can be built and opened.
 **2. Install frontend packages yourself, only if missing.**
 
 ~~~powershell
-npm install
+npm ci
 ~~~
 
-The repository currently has no committed `package-lock.json`, so
-`npm ci` is not the supported flow for this milestone. Neither
-`-AsJson` nor the default check installs dependencies or downloads
-anything.
+Since M3-23, the repository includes a reviewed `package-lock.json`.
+`npm ci` is the required reproducible frontend dependency install,
+and it fails if the lockfile is missing or out of sync with
+`package.json`. Do not use `npm audit fix --force` to silently change
+major versions. Neither `-AsJson` nor the default check installs
+dependencies or downloads anything.
 
 **3. Explicitly open the desktop development UI.**
 
