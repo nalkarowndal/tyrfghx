@@ -47,3 +47,10 @@
 .generation-metrics{margin-top:14px;border:1px solid #3b5871;border-radius:12px;background:#16263a;padding:14px;overflow-wrap:anywhere}
 .generation-metrics p{font-size:12px;line-height:1.65;margin:8px 0}
 .generation-metrics .generation-hash{word-break:break-all}
+
+/* M3-13: read-only trial preflight and clear, keyboard-accessible recovery */
+.vram-preflight-panel{margin-top:18px;border:1px solid #3d5368;background:#19293a;border-radius:12px;padding:16px;min-width:0}
+.vram-preflight-panel .generation-heading h3{margin:0;font-size:17px;font-weight:650}
+.vram-preflight-panel .muted{line-height:1.6}
+.vram-preflight-panel .compatibility-result{overflow-wrap:anywhere}
+.vram-preflight-panel .refresh-button:disabled{opacity:.55;cursor:not-allowed}
