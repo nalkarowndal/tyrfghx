@@ -98,7 +98,11 @@ describe("M3-27 model catalog recovery", () => {
   });
 
   it("rejects malformed and oversized catalogs rather than rendering unsafe entries", async () => {
-    for (const payload of [null, {}, [null], [{ id: "/tmp/private" }], Array(3001).fill(fixture())]) {
+    for (const payload of [null, {}, [null], [{ id: "/tmp/private" }],
+      [{ ...fixture(), potential_duplicate_ids: null }],
+      [{ ...fixture(), family: "untrusted_value" }],
+      [{ ...fixture(), size_bytes: Number.NaN }],
+      Array(3001).fill(fixture())]) {
       const h = stateHarness();
       await loadModelCatalog(
         () => Promise.resolve(payload as ModelRecord[]),
