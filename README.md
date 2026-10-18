@@ -3,13 +3,24 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-37 (real Windows model catalog error and manual recovery GUI E2E).**
+> **Current milestone: M3-38 (opt-in unsigned Windows NSIS installer-build QA).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-38: unsigned Windows NSIS installer build (NOT distributed)
+
+M3-38 introduces an isolated `tauri.nsis-qa.conf.json` overlay to build
+a Windows NSIS setup executable on an explicitly authorized hosted CI runner.
+Routine CI only validates that the default app configuration keeps bundling
+disabled and excludes the test-only embedded WebDriver. The opt-in Windows
+job checks the normal locked Cargo graph, installer PE header and SHA-256
+without running, signing, uploading or releasing the installer. **The Python
+backend and CUDA runtime are not packaged; this is not end-user-ready.**
+See [M3-38 Windows NSIS QA](docs/M3_WINDOWS_NSIS_BUNDLE_QA.md).
 
 ## M3-37: deterministic native model catalog failure and user retry test
 
