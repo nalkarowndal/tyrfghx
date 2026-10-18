@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
+import { hasCurrentCatalogConsent } from "./catalogConsent";
 import GpuDiagnosticsPanel from "./GpuDiagnosticsPanel";
 import GenerationGalleryInspector from "./GenerationGalleryInspector";
 import { describeGenerationFailure, explainGenerationStartError } from "./generationRecovery";
@@ -19,6 +20,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   const [galleryError, setGalleryError] = useState("");
   const [galleryRefresh, setGalleryRefresh] = useState(0);
   const [consent, setConsent] = useState(false);
+  const [consentedCatalog, setConsentedCatalog] = useState<readonly ModelRecord[] | null>(null);
   const [vramRiskConsent, setVramRiskConsent] = useState(false);
   const [job, setJob] = useState<JobSnapshot | null>(null);
   const [jobLoading, setJobLoading] = useState(false);
@@ -28,10 +30,22 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   const desktop = isTauri();
   const eligibleModels = useMemo(() => models.filter(x => x.category === "checkpoint"), [models]);
   const assessment = preflightImageSettings(settings, models);
+  const catalogConsentCurrent =
+    hasCurrentCatalogConsent(consentedCatalog, models, loadingModels, modelsError);
+
+  // Catalog refresh/replacement or failure invalidates both explicit consents.
+  // This does not cancel a generation already running; the native job owns it.
+  useEffect(() => {
+    setChecked(false);
+    setConsent(false);
+    setConsentedCatalog(null);
+    setVramRiskConsent(false);
+  }, [models, loadingModels, modelsError]);
   const update = (field: keyof ImageSettings, value: string | number) => {
     setSettings(previous => ({ ...previous, [field]: value }));
     setChecked(false);
     setConsent(false);
+    setConsentedCatalog(null);
     setVramRiskConsent(false);
   };
 
@@ -72,7 +86,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   }, [desktop, job?.phase]);
 
   async function startGeneration() {
-    if (!desktop || !runnerSupported || !assessment.ok || !consent || jobLoading ||
+    if (!desktop || !runnerSupported || !assessment.ok || !consent || !catalogConsentCurrent || jobLoading ||
         !jobStatusLoaded || job?.phase === "running" || job?.phase === "cancelling") return;
     setJobLoading(true);
     setJobError("");
@@ -112,13 +126,15 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
     setSettings(previous => ({ ...previous, width: 512, height: 512, steps: 15 }));
     setChecked(false);
     setConsent(false);
+    setConsentedCatalog(null);
     setVramRiskConsent(false);
     setJobError("");
   }
 
   const jobBusy = job?.phase === "running" || job?.phase === "cancelling";
   const recoveryAdvice = describeGenerationFailure(job);
-  const canRun = desktop && runnerSupported && assessment.ok && consent && jobStatusLoaded && !jobBusy && !jobLoading;
+  const canRun = desktop && runnerSupported && assessment.ok && consent && catalogConsentCurrent
+    && jobStatusLoaded && !jobBusy && !jobLoading;
   return <div className="generation-layout">
     <section className="generation-panel" aria-label="이미지 생성 설정">
       <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-21 · 이미지 상세 검수</span></div>
@@ -165,13 +181,15 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
         <label>시드 (0~4294967295)
           <input aria-label="이미지 시드" type="number" min={0} max={4294967295} value={settings.seed} onChange={e => update("seed", Number(e.target.value))} />
         </label>
-        <label className="generation-consent"><input aria-label="실제 GPU 추론 실행 동의" type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />
+        <label className="generation-consent"><input aria-label="실제 GPU 추론 실행 동의" type="checkbox" checked={consent && catalogConsentCurrent} disabled={loadingModels || !!modelsError}
+          onChange={e => { setConsent(e.target.checked); setConsentedCatalog(e.target.checked ? models : null); }} />
           로컬 GPU 연산이 시작되며 VRAM 부족이나 모델 오류가 발생할 수 있음을 확인했습니다.
         </label>
         <p className="muted">GPU 생성 시작 전에 전체 VRAM 6GiB, 가용 VRAM 4GiB, 8GiB 이하 GPU의 해상도 768×768 기준을 다시 확인합니다. 안전 조건을 충족하지 못하면 기본적으로 실행을 차단합니다. 이는 권장 초기 검사 기준이며 성공을 보장하지 않습니다.</p>
         <label className="generation-consent">
           <input aria-label="VRAM 부족 위험 별도 동의" type="checkbox"
-            checked={vramRiskConsent} onChange={e => setVramRiskConsent(e.target.checked)} />
+            checked={vramRiskConsent && catalogConsentCurrent} disabled={loadingModels || !!modelsError}
+            onChange={e => setVramRiskConsent(e.target.checked)} />
           추가 VRAM 위험을 이해했습니다. 메모리 안전 기준에 걸리더라도 실행을 시도하는 데 동의합니다. (권장하지 않음, OOM 가능)
         </label>
         <div className="generation-actions">

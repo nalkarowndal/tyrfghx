@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getCompatibility, type CompatibilityReport, type ModelRecord } from "./api";
 import { isTauri } from "@tauri-apps/api/core";
 import { importModelFromNativeDialog, type ImportCategory } from "./nativeModelImport";
 import { compareNativeModels, verifyNativeModelHash, type ModelHashCheckStatus } from "./nativeModelCatalog";
+import { belongsToActiveCatalogRequest } from "./catalogRequestGate";
 
 const categories: Record<ModelRecord["category"], string> = {
   checkpoint: "체크포인트", lora: "LoRA", vae: "VAE",
@@ -32,15 +33,34 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
   const [hashResults, setHashResults] = useState<Record<string, ModelHashCheckStatus>>({});
   const [hashError, setHashError] = useState<string | null>(null);
   const desktopApp = isTauri();
+  // Both identity and request-id checks matter: Tauri IPC cannot be aborted.
+  const catalogEpoch = useRef(0);
+  const hashRequest = useRef(0);
+  const compareRequest = useRef(0);
 
-  // A refreshed catalog must never display an old checksum match as current.
-  useEffect(() => {
+  function invalidateCatalogView() {
+    catalogEpoch.current += 1;
+    hashRequest.current += 1;
+    compareRequest.current += 1;
     setHashResults({});
     setHashError(null);
-  }, [items]);
+    setHashBusy(null);
+    setReport(null);
+    setCompareError("");
+    setComparing(false);
+    setCheckpointId("");
+    setLoraId("");
+  }
+
+  // Invalidate all async verdicts when the catalog is replaced, refreshed or fails.
+  useEffect(() => {
+    invalidateCatalogView();
+  }, [items, isLoading, error]);
 
   async function recheckHash(modelId: string) {
-    if (!desktopApp || hashBusy !== null) return;
+    if (!desktopApp || hashBusy !== null || isLoading || error) return;
+    const epoch = catalogEpoch.current;
+    const request = ++hashRequest.current;
     setHashBusy(modelId);
     setHashError(null);
     setHashResults(previous => {
@@ -50,12 +70,18 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
     });
     try {
       const report = await verifyNativeModelHash(modelId);
-      setHashResults(previous => ({ ...previous, [modelId]: report.status }));
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, hashRequest.current)) {
+        setHashResults(previous => ({ ...previous, [modelId]: report.status }));
+      }
     } catch {
-      // Never render raw native filesystem errors or local paths in the UI.
-      setHashError(modelId);
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, hashRequest.current)) {
+        // Never render raw native paths or error details.
+        setHashError(modelId);
+      }
     } finally {
-      setHashBusy(null);
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, hashRequest.current)) {
+        setHashBusy(null);
+      }
     }
   }
 
@@ -69,6 +95,7 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
       const result = await importModelFromNativeDialog(importCategory);
       if (result !== null) {
         setImportMessage(`모델 가져오기 완료: ${result.model_id}. 등록 당시 SHA-256: ${result.sha256}. Tauri 모델 목록을 새로고침합니다.`);
+        invalidateCatalogView();
         onRefresh();
       } else {
         setImportMessage("파일 선택을 취소했습니다. 변경사항이 없습니다.");
@@ -93,7 +120,9 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
     && loras.some(item => item.id === loraId);
 
   async function compare() {
-    if (!readyToCheck || comparing) return;
+    if (!readyToCheck || comparing || isLoading || error) return;
+    const epoch = catalogEpoch.current;
+    const request = ++compareRequest.current;
     setComparing(true);
     setCompareError("");
     setReport(null);
@@ -101,11 +130,17 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
       const result = desktopApp
         ? compareNativeModels(availableItems, checkpointId, loraId)
         : await getCompatibility(checkpointId, loraId);
-      setReport(result);
-    } catch (reason) {
-      setCompareError("계열 비교를 완료하지 못했습니다. 연결 상태를 확인하고 다시 시도하세요.");
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, compareRequest.current)) {
+        setReport(result);
+      }
+    } catch {
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, compareRequest.current)) {
+        setCompareError("계열 비교를 완료하지 못했습니다. 연결 상태를 확인하고 다시 시도하세요.");
+      }
     } finally {
-      setComparing(false);
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, compareRequest.current)) {
+        setComparing(false);
+      }
     }
   }
 
@@ -115,7 +150,7 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
         <h2>로컬 모델 관리</h2>
         <p className="muted">모델 파일, 수동 등록 정보, 계열 일치 가능성을 확인합니다. 실제 생성 여부는 검증하지 않습니다.</p>
       </div>
-      <button type="button" className="refresh-button" onClick={() => { setReport(null); setHashResults({}); setHashError(null); onRefresh(); }} disabled={isLoading || hashBusy !== null}>
+      <button type="button" className="refresh-button" onClick={() => { invalidateCatalogView(); onRefresh(); }} disabled={isLoading || hashBusy !== null}>
         {isLoading ? "검색 중..." : "목록 새로고침"}
       </button>
     </div>
@@ -218,13 +253,13 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
       <p className="muted">SAI ModelSpec 및 수동 정보에 기반한 참고용 검사입니다. 동일 계열이어도 실제로 작동한다는 보장은 없습니다.</p>
       <div className="compatibility-form">
         <label>체크포인트
-          <select value={checkpointId} onChange={e => { setCheckpointId(e.target.value); setReport(null); }}>
+          <select value={checkpointId} onChange={e => { compareRequest.current += 1; setComparing(false); setCompareError(""); setCheckpointId(e.target.value); setReport(null); }}>
             <option value="">선택하세요</option>
             {checkpoints.map(item => <option value={item.id} key={item.id}>{item.display_name || item.name}</option>)}
           </select>
         </label>
         <label>LoRA
-          <select value={loraId} onChange={e => { setLoraId(e.target.value); setReport(null); }}>
+          <select value={loraId} onChange={e => { compareRequest.current += 1; setComparing(false); setCompareError(""); setLoraId(e.target.value); setReport(null); }}>
             <option value="">선택하세요</option>
             {loras.map(item => <option value={item.id} key={item.id}>{item.display_name || item.name}</option>)}
           </select>
