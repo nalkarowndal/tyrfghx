@@ -24,7 +24,9 @@ export type JobSnapshot = {
 };
 
 /** Windows DEBUG builds only. No paths, executables or arbitrary command names cross IPC. */
-export async function startLocalGeneration(settings: ImageSettings, confirmed: boolean): Promise<JobSnapshot> {
+export async function startLocalGeneration(
+  settings: ImageSettings, confirmed: boolean, acknowledgeVramRisk = false,
+): Promise<JobSnapshot> {
   if (!isTauri()) throw new Error("데스크톱 개발판에서만 실행할 수 있습니다.");
   if (!confirmed) throw new Error("GPU 실행에 대한 명시적 동의가 필요합니다.");
   const request = {
@@ -33,7 +35,7 @@ export async function startLocalGeneration(settings: ImageSettings, confirmed: b
     negativePrompt: settings.negativePrompt,
     width: settings.width, height: settings.height,
     steps: settings.steps, guidance: settings.guidance,
-    seed: settings.seed, confirmed,
+    seed: settings.seed, confirmed, acknowledgeVramRisk,
   };
   return invoke<JobSnapshot>("start_local_generation", { request });
 }
