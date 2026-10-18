@@ -243,7 +243,7 @@ mod tests {
         assert_eq!(item.validation, "metadata_only");
         let fields = serde_json::to_value(item).unwrap();
         assert_eq!(fields["integrity_state"], "snapshot_unchanged");
-        assert_eq!(fields["recorded_sha256"], imported.sha256);
+        assert_eq!(fields["recorded_sha256"].as_str(), Some(imported.sha256.as_str()));
 
         let verdict = crate::model_integrity::verify_at_root(&root, &imported.model_id).unwrap();
         assert_eq!(verdict.status, "match");
@@ -283,8 +283,8 @@ mod tests {
         let b = catalog.iter().find(|item| item.id == lora.model_id).unwrap();
         let a_json = serde_json::to_value(a).unwrap();
         let b_json = serde_json::to_value(b).unwrap();
-        assert_eq!(a_json["potential_duplicate_ids"][0], lora.model_id);
-        assert_eq!(b_json["potential_duplicate_ids"][0], checkpoint.model_id);
+        assert_eq!(a_json["potential_duplicate_ids"][0].as_str(), Some(lora.model_id.as_str()));
+        assert_eq!(b_json["potential_duplicate_ids"][0].as_str(), Some(checkpoint.model_id.as_str()));
 
         let unregistered = "vae/manually-added.safetensors";
         assert!(catalog.iter().any(|item| item.id == unregistered));
