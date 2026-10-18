@@ -95,12 +95,14 @@ export function explainGenerationStartError(error: unknown): string {
       normalized.includes("진단이 진행") || normalized.includes("진행 중")) {
     return "다른 GPU 생성 또는 진단이 진행 중입니다. 해당 작업이 종료된 후 다시 시도하세요.";
   }
+  // A Python spawn error can contain a model filename in its path.
+  // Prefer the explicit executable failure over a generic "model" substring.
+  if (normalized.includes("python") || normalized.includes(".venv")) {
+    return "로컬 Python 추론 환경을 실행할 수 없습니다. 프로젝트의 .venv와 추론 패키지를 확인하세요.";
+  }
   if (normalized.includes("sdxl") || normalized.includes("checkpoint") ||
       normalized.includes("config") || normalized.includes("model")) {
     return "SDXL 모델 정보 또는 로컬 설정이 준비되지 않았습니다. 모델 관리와 오프라인 설정을 확인하세요.";
-  }
-  if (normalized.includes("python") || normalized.includes(".venv")) {
-    return "로컬 Python 추론 환경을 실행할 수 없습니다. 프로젝트의 .venv와 추론 패키지를 확인하세요.";
   }
   return "로컬 실행 전 검사에 실패했습니다. GPU 진단과 모델 설정을 확인하세요. 생성은 시작하지 않았습니다.";
 }
