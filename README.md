@@ -3,13 +3,25 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-30 (isolated Windows WebDriver and conditional catalog recovery smoke).**
+> **Current milestone: M3-31 (native release GPU-policy attestation and real Windows GUI timeout diagnosis).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-31: real Windows GUI test feedback and native release GPU attestation
+
+The first opt-in hosted Windows UI run compiled the Tauri release binary and
+installed matching WebDriver prerequisites, but the actual GUI test failed on a
+12-second unclassified request timeout. M3-31 introduces a separate 90-second
+native session startup timeout with privacy-safe request-stage diagnostics.
+The app also now reports the result of `local_generation_supported` explicitly,
+and native GUI E2E requires confirmed **GPU release policy disabled** via IPC;
+a merely disabled launch button is no longer accepted as proof. This code is
+not evidence of a successful GUI rerun. See
+[M3-31 first native Windows GUI run](docs/M3_FIRST_NATIVE_WINDOWS_GUI_RUN.md).
 
 ## M3-30: isolated WebDriver and safe model-list retry checks
 
