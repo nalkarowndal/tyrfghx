@@ -123,16 +123,22 @@ pub(crate) fn read_local_vram(
 
 /// Every exit path for an attached diagnostic must verify complete process
 /// cleanup. A missing signal is NOT equivalent to a successful Job drain.
-fn terminate_and_latch(
-    job: &super::windows_process_job::ProcessJob,
-    fault: &AtomicBool,
-) -> Result<(), String> {
-    let outcome = job.terminate().and_then(|_| job.verify_drained(Duration::from_secs(2)));
+/// Fail-closed, monotonic state: a later success must never clear a
+/// previously observed unverified diagnostic process group.
+fn latch_cleanup_result(fault: &AtomicBool, outcome: Result<(), String>) -> Result<(), String> {
     if outcome.is_err() {
         fault.store(true, Ordering::SeqCst);
         return Err("GPU 진단 종료 후 Windows 하위 프로세스 정리를 검증하지 못했습니다. 앱을 다시 시작하기 전까지 GPU 작업을 차단합니다.".into());
     }
     Ok(())
+}
+
+fn terminate_and_latch(
+    job: &super::windows_process_job::ProcessJob,
+    fault: &AtomicBool,
+) -> Result<(), String> {
+    let outcome = job.terminate().and_then(|_| job.verify_drained(Duration::from_secs(2)));
+    latch_cleanup_result(fault, outcome)
 }
 
 fn run_probe(repo: PathBuf, cleanup_fault: Arc<AtomicBool>) -> Result<GpuDiagnosticReport, String> {
@@ -236,6 +242,19 @@ pub async fn inspect_local_gpu(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_cleanup_failure_is_a_monotonic_safety_latch() {
+        let fault = AtomicBool::new(false);
+        assert!(latch_cleanup_result(&fault, Ok(())).is_ok());
+        assert!(!fault.load(Ordering::SeqCst));
+        let error = latch_cleanup_result(&fault, Err("Synthetic secret path".into())).unwrap_err();
+        assert!(error.contains("앱을 다시 시작"));
+        assert!(!error.contains("secret"));
+        assert!(fault.load(Ordering::SeqCst));
+        assert!(latch_cleanup_result(&fault, Ok(())).is_ok());
+        assert!(fault.load(Ordering::SeqCst));
+    }
 
     const OK_JSON: &str = r#"{
         "schema_version":1, "status":"ready_for_trial", "os":"Windows",
