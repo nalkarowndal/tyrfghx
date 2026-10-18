@@ -2,7 +2,8 @@
 # Launches only the exact, GPU-disabled release executable in this checkout.
 # No model picker, WebDriver, GPU consent, screenshots, prompts or file traversal.
 param(
-  [Parameter(Mandatory = $true)][string]$Application
+  [Parameter(Mandatory = $true)][string]$Application,
+  [switch]$ValidateOnly
 )
 $ErrorActionPreference = "Stop"
 $expected = [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path "src-tauri/target/release/aiimage.exe"))
@@ -10,6 +11,7 @@ $requested = [System.IO.Path]::GetFullPath($Application)
 if ($requested -ine $expected) {
   throw "native_launch_probe: unsupported_application_path"
 }
+if ($ValidateOnly) { Write-Output "native_launch_probe: expected_release_path_valid"; return }
 if (-not (Test-Path -LiteralPath $expected -PathType Leaf)) {
   throw "native_launch_probe: release_binary_missing"
 }
