@@ -104,6 +104,21 @@ fn trusted_python(repo: &Path) -> Result<PathBuf, String> {
     Ok(python)
 }
 
+/// Run the exact same bounded, OS-supervised local CUDA probe used by
+/// the diagnostics UI. The generation command evaluates memory thresholds
+/// from the resulting device reading without trusting browser fields.
+pub(crate) fn read_local_vram(repo: PathBuf) -> Result<(u64, u64), String> {
+    let report = run_probe(repo)?;
+    if report.status != "ready_for_trial" {
+        return Err(format!(
+            "CUDA 환경 점검에 실패하여 생성을 차단했습니다 ({}). GPU 진단을 확인하세요.",
+            report.status
+        ));
+    }
+    let gpu = report.gpu.ok_or("GPU 장치 세부 정보가 없습니다.")?;
+    Ok((gpu.total_vram_bytes, gpu.free_vram_bytes_at_check))
+}
+
 fn run_probe(repo: PathBuf) -> Result<GpuDiagnosticReport, String> {
     let python = trusted_python(&repo)?;
     let mut cmd = Command::new(python);

@@ -16,6 +16,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   const [galleryError, setGalleryError] = useState("");
   const [galleryRefresh, setGalleryRefresh] = useState(0);
   const [consent, setConsent] = useState(false);
+  const [vramRiskConsent, setVramRiskConsent] = useState(false);
   const [job, setJob] = useState<JobSnapshot | null>(null);
   const [jobLoading, setJobLoading] = useState(false);
   const [jobError, setJobError] = useState("");
@@ -28,6 +29,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
     setSettings(previous => ({ ...previous, [field]: value }));
     setChecked(false);
     setConsent(false);
+    setVramRiskConsent(false);
   };
 
   useEffect(() => {
@@ -72,9 +74,10 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
     setJobLoading(true);
     setJobError("");
     try {
-      const result = await startLocalGeneration(settings, consent);
+      const result = await startLocalGeneration(settings, consent, vramRiskConsent);
       setJob(result);
       setConsent(false);
+      setVramRiskConsent(false);
     } catch (reason) {
       setJobError(String(reason));
     } finally {
@@ -106,7 +109,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   const canRun = desktop && runnerSupported && assessment.ok && consent && jobStatusLoaded && !jobBusy && !jobLoading;
   return <div className="generation-layout">
     <section className="generation-panel" aria-label="이미지 생성 설정">
-      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-8 · 생성 결과 검증</span></div>
+      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-12 · VRAM 안전 검사</span></div>
       <p className="muted">Windows Tauri 개발판에서는 명시적으로 승인한 한 건의 로컬 SDXL 추론을 시작하거나 중지할 수 있습니다. 배포판과 웹 브라우저에서는 비활성화됩니다.</p>
       <GpuDiagnosticsPanel supported={runnerSupported} busy={jobBusy || jobLoading} />
       <div className="generation-fields">
@@ -147,6 +150,12 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
         </label>
         <label className="generation-consent"><input aria-label="실제 GPU 추론 실행 동의" type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />
           로컬 GPU 연산이 시작되며 VRAM 부족이나 모델 오류가 발생할 수 있음을 확인했습니다.
+        </label>
+        <p className="muted">GPU 생성 시작 전에 전체 VRAM 6GiB, 가용 VRAM 4GiB, 8GiB 이하 GPU의 해상도 768×768 기준을 다시 확인합니다. 안전 조건을 충족하지 못하면 기본적으로 실행을 차단합니다. 이는 권장 초기 검사 기준이며 성공을 보장하지 않습니다.</p>
+        <label className="generation-consent">
+          <input aria-label="VRAM 부족 위험 별도 동의" type="checkbox"
+            checked={vramRiskConsent} onChange={e => setVramRiskConsent(e.target.checked)} />
+          추가 VRAM 위험을 이해했습니다. 메모리 안전 기준에 걸리더라도 실행을 시도하는 데 동의합니다. (권장하지 않음, OOM 가능)
         </label>
         <div className="generation-actions">
           <button type="button" className="refresh-button" onClick={() => setChecked(true)}>입력 사전 검사</button>

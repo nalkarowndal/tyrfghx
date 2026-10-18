@@ -5,6 +5,7 @@ mod generation_jobs;
 mod generation_result;
 mod windows_process_job;
 mod gpu_diagnostics;
+mod vram_safety;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

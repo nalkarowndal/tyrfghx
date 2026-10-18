@@ -31,6 +31,8 @@ pub struct GenerateRequest {
     guidance: f64,
     seed: u64,
     confirmed: bool,
+    #[serde(default)]
+    acknowledge_vram_risk: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -230,10 +232,28 @@ pub async fn start_local_generation(
     let models = super::model_import::model_root(&app)?;
     let python = validate_local_files(&repo, &models, &request)?;
 
+    // Reserve exclusive access BEFORE probing. Concurrent windows, manual
+    // diagnostics and generation starts cannot race while CUDA is inspected.
+    // The scoped permit is retained until the child is registered in state.
+    let probe_permit = state.reserve_diagnostic()?;
+    let probe_repo = repo.clone();
+    // The blocking worker OWNS the reservation while probing. If the
+    // originating UI/window cancels the async invoke, the worker still
+    // holds the reservation until the OS-supervised probe exits.
+    // On success, transfer it back and hold it through job registration.
+    let (_preflight_permit, (total_vram, free_vram)) =
+        tauri::async_runtime::spawn_blocking(move || {
+            let _held = probe_permit;
+            let reading = super::gpu_diagnostics::read_local_vram(probe_repo)?;
+            Ok::<_, String>((_held, reading))
+        })
+        .await.map_err(|_| "CUDA 사전 검사 작업이 비정상 종료되었습니다.".to_string())??;
+    let memory_warning = super::vram_safety::check_trial(
+        total_vram, free_vram, request.width, request.height,
+        request.acknowledge_vram_risk,
+    )?;
+
     let mut guard = state.current.lock().map_err(|_| "Job manager lock error")?;
-    if state.diagnostic_active.load(Ordering::SeqCst) {
-        return Err("GPU 환경 검사 중에는 모델 생성을 시작할 수 없습니다.".into());
-    }
     if let Some(job) = guard.as_ref() {
         let phase = job.snapshot.lock().map_err(|_| "Job state lock error")?.phase.clone();
         if phase == "running" || phase == "cancelling" {
@@ -291,7 +311,10 @@ pub async fn start_local_generation(
     let snapshot = Arc::new(Mutex::new(JobSnapshot {
         job_id: id,
         phase: "running".into(),
-        message: "로컬 GPU 생성 중 (최대 30분, 단계별 진행률 미제공).".into(),
+        message: match &memory_warning {
+            Some(warning) => format!("로컬 GPU 생성 중 (최대 30분). {warning}"),
+            None => "로컬 GPU 생성 중 (최대 30분, 단계별 진행률 미제공).".into(),
+        },
         elapsed_seconds: 0,
         time_limit_seconds: MAX_JOB_RUNTIME.as_secs(),
         result: None,
@@ -433,7 +456,8 @@ mod tests {
     fn request() -> GenerateRequest {
         GenerateRequest { checkpoint_id:"checkpoints/a.safetensors".into(),
             prompt:"a watercolor bird".into(),negative_prompt:"".into(),
-            width:768,height:768,steps:20,guidance:7.0,seed:42,confirmed:true }
+            width:768,height:768,steps:20,guidance:7.0,seed:42,confirmed:true,
+            acknowledge_vram_risk:false }
     }
     #[test] fn validates_supported_inputs_and_explicit_confirmation() {
         assert!(validate_request(&request()).is_ok());
@@ -446,6 +470,25 @@ mod tests {
         let mut bad = request();bad.guidance=f64::NAN;
         assert!(validate_request(&bad).is_err());
     }
+    #[test] fn old_ipc_requests_default_to_no_vram_override() {
+        let json = serde_json::json!({
+            "checkpointId":"checkpoints/a.safetensors",
+            "prompt":"test image", "negativePrompt":"",
+            "width":512, "height":512, "steps":15, "guidance":7.0,
+            "seed":42, "confirmed":true
+        });
+        let decoded: GenerateRequest = serde_json::from_value(json).unwrap();
+        assert!(!decoded.acknowledge_vram_risk);
+        let json = serde_json::json!({
+            "checkpointId":"checkpoints/a.safetensors",
+            "prompt":"test image", "negativePrompt":"",
+            "width":512, "height":512, "steps":15, "guidance":7.0,
+            "seed":42, "confirmed":true, "acknowledgeVramRisk":true
+        });
+        let decoded: GenerateRequest = serde_json::from_value(json).unwrap();
+        assert!(decoded.acknowledge_vram_risk);
+    }
+
     #[test] fn distinguishes_oom_from_other_errors() {
         assert_eq!(outcome_message(false, "CUDA out of memory", Some(1), false, false).0, "failed");
         assert!(outcome_message(false, "CUDA out of memory", Some(1), false, false).1.contains("VRAM"));
