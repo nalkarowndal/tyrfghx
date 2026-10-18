@@ -222,10 +222,19 @@ export async function runWindowsUiSmoke(base, application, { embedded = false, c
       }
       throw new Error("Catalog never reached a loaded or safe failure state.");
     };
-    const firstCatalog = await awaitCatalog();
+    let firstCatalog;
     if (catalogFaultMarker !== null) {
+      // An old "empty" state may persist for a React render tick after click.
+      // Require actual error UI, not the first settled-looking string.
+      const until = Date.now() + 12_000;
+      while (Date.now() < until) {
+        if (await catalogState() === "error") { firstCatalog = "error"; break; }
+        await sleep(200);
+      }
       assert.equal(firstCatalog, "error",
         "Test-only native fault must produce actual model catalog error");
+    } else {
+      firstCatalog = await awaitCatalog();
     }
     if (firstCatalog === "error") {
       assert.equal((await elements(".model-item")).length, 0,
