@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-11 (conservative VRAM-aware offline hardware acceptance).**
+> **Current milestone: M3-12 (native Tauri VRAM safety gate before GPU generation).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,24 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Native desktop GPU VRAM safety check (M3-12)
+
+Windows Tauri DEBUG generation now performs a **fresh local CUDA memory
+probe before launching the SDXL model process**, using the same fixed
+Windows Job Object supervised Python diagnostic as the existing GPU
+status panel. A shared single-flight reservation prevents generation
+or other diagnostics from racing while memory is inspected.
+
+The same cautious 6 GiB total, 4 GiB free and 768×768 on <= 8 GiB GPU
+criteria from M3-11 are enforced **inside Rust**, not just displayed
+in the frontend. A separate unchecked VRAM-risk consent can permit
+an explicit attempt that violates a heuristic threshold, but cannot
+override missing CUDA, bad device readings or the normal user consent
+requirement. Browser and release GPU execution remain unavailable.
+This check is not a guarantee that the checkpoint will fit in VRAM.
+
+See [M3-12 Tauri VRAM safety documentation](docs/M3_TAURI_VRAM_GATE.md).
 
 ## 8GB GPU VRAM safety gate (M3-11)
 
