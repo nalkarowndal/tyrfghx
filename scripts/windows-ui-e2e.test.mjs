@@ -10,7 +10,8 @@ const makeResponse = (reply, status = 200) => ({
 
 async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChecked = false,
   vramChecked = false, missingConsent = false,
-  catalogErrorOnce = false, staleCardOnError = false, nativePolicy = "disabled" } = {}) {
+  catalogErrorOnce = false, staleCardOnError = false, nativePolicy = "disabled",
+  sessionDelayMillis = 0 } = {}) {
   let screen = "generation";
   let preflight = false;
   let closed = false;
@@ -25,6 +26,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
     let response;
     if (url === "/status") response = makeResponse({ ready: true });
     else if (url === "/session" && req.method === "POST") {
+      if (sessionDelayMillis > 0) await new Promise(done => setTimeout(done, sessionDelayMillis));
       assert.equal(payload.capabilities.alwaysMatch["tauri:options"].application, "C:\\fake\\aiimage.exe");
       assert.equal(payload.capabilities.alwaysMatch.browserName, "wry");
       response = makeResponse({ sessionId: "a1234567", capabilities: {} });
@@ -221,6 +223,29 @@ test("M3-31 real E2E cannot claim release mode if native policy IPC rejects", as
       runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe"),
       /Native GPU availability IPC failed/,
     );
+    assert.equal(server.closed, true);
+  } finally { await server.close(); }
+});
+
+test("M3-31 logs only safe WebDriver stage and timeout, not application path", async () => {
+  const server = await fakeDriver({ sessionDelayMillis: 45 });
+  try {
+    await assert.rejects(
+      requestWebDriver(server.url, "POST", "/session", {
+        capabilities: { alwaysMatch: { browserName: "wry", "tauri:options": { application: "C:\\fake\\aiimage.exe" } } },
+      }, 5),
+      error => error.message.includes("WebDriver session request timed out after 5ms")
+        && !error.message.includes("C:")
+        && !error.message.includes("sessionId"),
+    );
+  } finally { await server.close(); }
+});
+
+test("M3-31 allows bounded native GUI session startup longer than ordinary DOM commands", async () => {
+  const server = await fakeDriver({ sessionDelayMillis: 40 });
+  try {
+    const checks = await runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe");
+    assert.equal(checks.native_release_policy, "attested_disabled");
     assert.equal(server.closed, true);
   } finally { await server.close(); }
 });
