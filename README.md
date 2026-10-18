@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-19 (read-only review of owner-provided generation and VRAM QA evidence).**
+> **Current milestone: M3-20 (independently verify local PNG bytes against owner hardware QA evidence).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,24 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Independently verify generated PNG bytes during owner QA (M3-20)
+
+The offline owner-only M3-19 review tool can now **optionally** take an
+explicit `--output-root` folder, find only the fixed-format PNG
+basename already claimed in the M3-10 report, and independently check
+actual file bytes. The stdlib-only verifier checks an 8MiB file limit,
+exact SHA-256, dimensions, full PNG chunk CRC/IEND, bounded zlib stream
+and every reconstructed 8-bit RGB/RGBA scanline. It does **not**
+run a model, import CUDA, query NVIDIA devices, or upload files.
+
+The M3-19 cross-report summary remains **manual-review evidence**, not
+automatic GPU hardware certification or an artistic quality score.
+Without the additional output-root argument independent PNG
+verification is explicitly `not_requested`. A corrupt or missing
+PNG is a sanitized verification failure, never a green result.
+
+See [M3-20 independent local PNG QA](docs/M3_INDEPENDENT_PNG_QA.md).
 
 ## Review owner-run GPU QA evidence without false qualification (M3-19)
 
