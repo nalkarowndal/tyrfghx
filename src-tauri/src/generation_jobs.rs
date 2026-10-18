@@ -68,6 +68,12 @@ impl Drop for DiagnosticPermit {
     fn drop(&mut self) { self.0.store(false, Ordering::SeqCst); }
 }
 
+/// Keep GPU work locked out after a failed cleanup check until the user
+/// inspects processes and restarts the desktop app.
+fn terminal_cleanup_unverified(snapshot: &JobSnapshot) -> bool {
+    snapshot.failure_code == Some("process_cleanup_failed")
+}
+
 impl JobManager {
     /// A scoped single-flight diagnostic reservation: protects concurrent
     /// windows and prevents a CUDA check overlapping with live inference.
@@ -78,7 +84,7 @@ impl JobManager {
             if status.phase == "running" || status.phase == "cancelling" {
                 return Err("이미지 생성 중에는 CUDA 진단을 시작할 수 없습니다.".into());
             }
-            if status.failure_code == Some("process_cleanup_failed") {
+            if terminal_cleanup_unverified(&status) {
                 return Err("이전 CUDA 작업의 Windows 하위 프로세스 정리를 확인하지 못했습니다. 작업 관리자에서 상태를 확인하고 앱을 다시 시작하기 전까지 GPU 작업을 차단합니다.".into());
             }
         }
@@ -743,11 +749,11 @@ mod tests {
             elapsed_seconds: 5, time_limit_seconds: 1800,
             result: None, failure_code: code,
         };
-        assert_eq!(state.failure_code, Some("process_cleanup_failed"));
+        assert!(terminal_cleanup_unverified(&state));
         let other = JobSnapshot { failure_code: None, ..state.clone() };
-        assert_ne!(other.failure_code, Some("process_cleanup_failed"));
+        assert!(!terminal_cleanup_unverified(&other));
         state.phase = "cancelled".into();
-        assert_eq!(state.failure_code, Some("process_cleanup_failed"));
+        assert!(terminal_cleanup_unverified(&state));
     }
 
     #[test] fn diagnostic_reservation_is_single_flight_and_releases_on_drop() {
