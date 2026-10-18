@@ -8,7 +8,8 @@ const makeResponse = (reply, status = 200) => ({
   code: status, payload: JSON.stringify({ value: reply }),
 });
 
-async function fakeDriver({ gpuEnabled = false, showPreflight = true } = {}) {
+async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChecked = false,
+  vramChecked = false, missingConsent = false } = {}) {
   let screen = "generation";
   let preflight = false;
   let closed = false;
@@ -22,6 +23,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true } = {}) {
     if (url === "/status") response = makeResponse({ ready: true });
     else if (url === "/session" && req.method === "POST") {
       assert.equal(payload.capabilities.alwaysMatch["tauri:options"].application, "C:\\fake\\aiimage.exe");
+      assert.equal(payload.capabilities.alwaysMatch.browserName, "wry");
       response = makeResponse({ sessionId: "a1234567", capabilities: {} });
     } else if (url === "/session/a1234567" && req.method === "DELETE") {
       closed = true; response = makeResponse(null);
@@ -30,6 +32,8 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true } = {}) {
       if (payload.value === "body") ids = ["body"];
       else if (payload.value.startsWith("nav[")) ids = ["nav-model", "nav-image"];
       else if (payload.value === "button") ids = ["refresh", "preflight", "gpu"];
+      else if (payload.value === 'input[aria-label="실제 GPU 추론 실행 동의"]' && !missingConsent) ids = ["consent"];
+      else if (payload.value === 'input[aria-label="VRAM 부족 위험 별도 동의"]') ids = ["vram"];
       response = makeResponse(ids.map(id => ({ [ELEMENT]: id })));
     } else if (url.startsWith("/session/a1234567/element/")) {
       const [id, operation] = url.slice("/session/a1234567/element/".length).split("/");
@@ -52,6 +56,8 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true } = {}) {
         response = makeResponse(null);
       } else if (operation === "enabled") {
         response = makeResponse(id === "gpu" ? gpuEnabled : true);
+      } else if (operation === "selected") {
+        response = makeResponse(id === "consent" ? consentChecked : id === "vram" ? vramChecked : false);
       } else {
         response = makeResponse({ error: "unknown command" }, 404);
       }
@@ -71,6 +77,7 @@ test("M3-26 protocol: actual model-navigation and safe preflight command order",
     const checks = await runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe");
     assert.deepEqual(checks, {
       navigation: "passed", missing_checkpoint_preflight: "passed", release_gpu_block: "passed",
+      consent_unchecked_after_navigation: "passed",
     });
     assert.equal(server.closed, true, "session must always close");
   } finally { await server.close(); }
@@ -96,5 +103,39 @@ test("M3-26 WebDriver API returns protocol error category without leaking raw pa
   const server = await fakeDriver();
   try {
     await assert.rejects(requestWebDriver(server.url, "POST", "/invalid", {}), /unknown command/);
+  } finally { await server.close(); }
+});
+
+
+test("M3-29 release safety: reject a pre-checked GPU consent checkbox", async () => {
+  const server = await fakeDriver({ consentChecked: true });
+  try {
+    await assert.rejects(
+      runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe"),
+      /GPU consent must be unchecked/,
+    );
+    assert.equal(server.closed, true);
+  } finally { await server.close(); }
+});
+
+test("M3-29 release safety: reject a pre-checked VRAM override", async () => {
+  const server = await fakeDriver({ vramChecked: true });
+  try {
+    await assert.rejects(
+      runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe"),
+      /VRAM override must be unchecked/,
+    );
+    assert.equal(server.closed, true);
+  } finally { await server.close(); }
+});
+
+test("M3-29 release safety: fail closed if required checkbox is missing", async () => {
+  const server = await fakeDriver({ missingConsent: true });
+  try {
+    await assert.rejects(
+      runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe"),
+      /Missing or duplicate GPU consent checkbox/,
+    );
+    assert.equal(server.closed, true);
   } finally { await server.close(); }
 });
