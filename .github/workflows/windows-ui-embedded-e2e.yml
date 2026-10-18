@@ -63,3 +63,8 @@ jobs:
         env:
           AIIMAGE_E2E_APP: ${{ github.workspace }}\src-tauri\target\release\aiimage.exe
         run: node scripts/windows-ui-e2e.mjs --run --embedded
+      - name: Exercise real model catalog error and manual retry (disposable fixture only)
+        shell: pwsh
+        env:
+          AIIMAGE_E2E_APP: ${{ github.workspace }}\src-tauri\target\release\aiimage.exe
+        run: node scripts/windows-ui-e2e.mjs --run --embedded --catalog-fault-once

@@ -1,4 +1,7 @@
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { readFile, rm } from "node:fs/promises";
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -303,4 +306,53 @@ test("M3-34: E2E launcher accepts only this checkout's release executable", () =
   assert.equal(isExpectedReleaseApp(resolve(root, "src-tauri", "target", "debug", "aiimage.exe"), root), false);
   assert.equal(isExpectedReleaseApp("aiimage.exe", root), false);
   assert.equal(isExpectedReleaseApp(null, root), false);
+});
+
+test("M3-37: E2E-only native catalog failure and actual retry are required", async () => {
+  const server = await fakeDriver({ catalogErrorOnce: true });
+  const marker = join(tmpdir(), "aiimage-e2e-catalog-" + randomUUID() + ".sentinel");
+  try {
+    const result = await runWindowsUiSmoke(
+      server.url, "C:\\fake\\aiimage.exe", { embedded: true, catalogFaultMarker: marker },
+    );
+    assert.equal(result.catalog_error_recovery, "passed");
+    assert.equal(server.modelRefreshCount, 2, "First refresh fails, next refresh recovers");
+    assert.equal(server.closed, true);
+    assert.equal(await readFile(marker, "utf8"), "aiimage-e2e-fail-once\n");
+  } finally {
+    await rm(marker, { force: true });
+    await server.close();
+  }
+});
+
+test("M3-37: a requested native failure that never occurs fails closed", async () => {
+  const server = await fakeDriver();
+  const marker = join(tmpdir(), "aiimage-e2e-catalog-" + randomUUID() + ".sentinel");
+  try {
+    await assert.rejects(
+      runWindowsUiSmoke(
+        server.url, "C:\\fake\\aiimage.exe", { embedded: true, catalogFaultMarker: marker },
+      ), /Test-only native fault must produce actual model catalog error/,
+    );
+    assert.equal(server.closed, true);
+  } finally {
+    await rm(marker, { force: true });
+    await server.close();
+  }
+});
+
+test("M3-37: catalog fault fixture cannot be used by external driver mode", async () => {
+  const server = await fakeDriver();
+  const marker = join(tmpdir(), "aiimage-e2e-catalog-" + randomUUID() + ".sentinel");
+  try {
+    await assert.rejects(
+      runWindowsUiSmoke(
+        server.url, "C:\\fake\\aiimage.exe", { embedded: false, catalogFaultMarker: marker },
+      ), /Synthetic catalog fault requires embedded E2E/,
+    );
+    assert.equal(server.closed, true);
+  } finally {
+    await rm(marker, { force: true });
+    await server.close();
+  }
 });
