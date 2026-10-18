@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-13 (read-only VRAM preflight and recovery UI).**
+> **Current milestone: M3-14 (sanitized GPU job failure categories and guided recovery).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,24 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## GPU generation failure classification and safe recovery (M3-14)
+
+The Windows Tauri DEBUG-only job supervisor reports an allowlisted,
+non-sensitive `failure_code` alongside its existing terminal job phase.
+Codes cover CUDA out-of-memory, missing Python inference dependency,
+CUDA runtime failure, unsuccessful inference, Windows process cleanup
+failure, PNG verification failure, timeout and explicit cancellation.
+Raw model paths and stderr are **not** exported.
+
+The image workspace renders Korean, category-specific help. For GPU OOM
+or timeout it offers a voluntary 512×512/15-step settings shortcut,
+which resets previous user consent and **never** automatically reruns
+a GPU job. Actual generation still requires independent consent and a
+fresh VRAM check. CUDA cache/driver cleanup and image quality remain
+unverified on the user's real 8GB device.
+
+See [M3-14 GPU job recovery](docs/M3_GENERATION_FAILURE_RECOVERY.md).
 
 ## Inspect VRAM before generation and recover safely (M3-13)
 
