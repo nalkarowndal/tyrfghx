@@ -83,7 +83,7 @@ def _gpu_summary(raw: dict[str, Any]) -> dict[str, Any]:
             "unsupported_backend", "cuda_unavailable", "cuda_probe_error",
             "unavailable",
         }
-        return {"status": status if status in allowed else "cuda_probe_error"}
+        return {"status": status if isinstance(status, str) and status in allowed else "cuda_probe_error"}
     gpu = raw.get("gpu")
     if not isinstance(gpu, dict):
         return {"status": "cuda_probe_error"}
@@ -103,7 +103,11 @@ def _gpu_summary(raw: dict[str, Any]) -> dict[str, Any]:
     # device-defined multiline text in the sanitized acceptance report.
     def safe_label(text: Any, limit: int) -> str:
         value = str(text)
-        return "".join(c for c in value if c.isprintable() and c not in "\\/:").strip()[:limit]
+        # Device labels should be simple product/version names, not paths,
+        # shell fragments, or driver error payloads with personal details.
+        if not value or any(c in value for c in "\\/:\\n\\r\\t") or not re.fullmatch(r"[\\w .()+-]+", value):
+            return "unknown"
+        return value[:limit]
     return {
         "status": "ready_for_trial",
         "name": safe_label(gpu.get("name", "unknown"), 120),
