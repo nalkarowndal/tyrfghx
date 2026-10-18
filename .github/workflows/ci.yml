@@ -43,6 +43,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # The repository currently has no checked-in package-lock.json;
+      # match existing npm install CI without changing dependency resolution.
+      - run: npm install
+      - name: Verify Windows dev launcher without opening a GUI or GPU
+        shell: pwsh
+        run: ./scripts/test-windows-dev.ps1
       - name: Verify Rust toolchain
         run: rustc --version
       - name: Build and test Tauri native import code
