@@ -32,6 +32,13 @@ jobs:
         run: |
           if ((Get-Content src-tauri/Cargo.toml -Raw) -notmatch 'default = \[\]') { throw 'E2E Cargo feature must not be default' }
           if ((Get-Content src-tauri/tauri.conf.json -Raw) -match 'webdriver-e2e') { throw 'Production Tauri config must exclude E2E capability' }
+      - name: Build ordinary production feature set without an installer
+        run: npm run tauri -- build --no-bundle
+      - name: Reject production WebDriver exposure even with test environment flags
+        shell: pwsh
+        env:
+          AIIMAGE_E2E_APP: ${{ github.workspace }}\src-tauri\target\release\aiimage.exe
+        run: ./scripts/windows-production-webdriver-absence.ps1 -Application $env:AIIMAGE_E2E_APP
       - name: Build GPU-disabled E2E-only Tauri executable, never an installer
         run: npm run tauri -- build --no-bundle --features e2e-webdriver --config src-tauri/tauri.e2e.conf.json
       - name: Run real Windows embedded WebDriver UI checks without GPU consent
