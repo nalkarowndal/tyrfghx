@@ -72,14 +72,21 @@ export async function runWindowsUiSmoke(base, application) {
     throw new Error(`Expected safe UI marker absent: ${expected}`);
   };
   const clickButton = async (selector, text) => {
-    const ids = await elements(selector);
-    for (const id of ids) {
-      if ((await getText(id)).trim() === text) {
-        await click(id);
-        return;
+    const deadline = Date.now() + 12_000;
+    while (Date.now() < deadline) {
+      const ids = await elements(selector);
+      for (const id of ids) {
+        if ((await getText(id)).trim() === text) {
+          const enabled = await call("GET", `/element/${id}/enabled`);
+          if (enabled) {
+            await click(id);
+            return;
+          }
+        }
       }
+      await sleep(200);
     }
-    throw new Error(`Expected UI control absent: ${text}`);
+    throw new Error(`Expected enabled UI control absent: ${text}`);
   };
 
   try {
@@ -117,6 +124,11 @@ export async function runWindowsUiSmoke(base, application) {
         assert.equal(await selected(matches[0]), false, `${name} must be unchecked`);
       }
     }
+    await verifyReleaseSafety();
+    // Exercise a real model-catalog refresh with NO file picker or model import.
+    // The refresh may briefly disable its own button while loading.
+    await clickButton("button", "모델 목록 새로고침");
+    await waitText("입력 사전 검사");
     await verifyReleaseSafety();
     await clickButton('nav[aria-label="작업 도구"] button', "모델 관리");
     await waitText("로컬 모델 관리");
