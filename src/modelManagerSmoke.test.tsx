@@ -38,7 +38,7 @@ describe("M3-25 model manager render smoke", () => {
     expect(html.match(/현재 파일 SHA-256 검증/g)).toHaveLength(2);
     expect(html).toContain("로컬 모델 관리");
     expect(html).toContain("legacy.ckpt");
-    expect(html).toContain("CKPT 자동 로딩"); // ModelLibrary labels are conservative.
+    expect(html).toContain("자동 로딩 차단"); // ModelLibrary labels are conservative.
     expect(html).not.toContain("이미지 생성 완료");
   });
 
