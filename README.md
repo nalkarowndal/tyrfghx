@@ -3,13 +3,24 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-29 (opt-in Windows UI safety E2E checks for catalog refresh and release consent).**
+> **Current milestone: M3-30 (isolated Windows WebDriver and conditional catalog recovery smoke).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-30: isolated WebDriver and safe model-list retry checks
+
+The opt-in native Windows test now starts `tauri-driver` on two dedicated
+ephemeral loopback ports instead of assuming 4444/4445 are free. The GUI
+smoke waits for a model catalog response; if a real catalog error is shown
+it refuses stale model cards, retries using the actual UI and requires a
+recovered list. A clean run reports the error-retry case as **not exercised**
+rather than a false pass. Regular CI tests the W3C protocol with a fake
+local driver, not a real Tauri window. See
+[M3-30 Windows driver isolation QA](docs/M3_WINDOWS_DRIVER_ISOLATION_QA.md).
 
 ## M3-29: Windows native UI safety smoke for refresh and release GPU guards
 
