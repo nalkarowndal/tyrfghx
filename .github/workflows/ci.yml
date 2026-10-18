@@ -14,7 +14,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install
+      - run: npm ci --no-fund
+      - name: Audit locked JavaScript dependencies (moderate or higher)
+        run: npm audit --audit-level=moderate
       - run: npm run build
       - run: npm test
   backend:
@@ -46,9 +48,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      # The repository currently has no checked-in package-lock.json;
-      # match existing npm install CI without changing dependency resolution.
-      - run: npm install
+      # Use the reviewed committed npm lockfile on both Linux and Windows.
+      - run: npm ci --no-fund
       - name: Verify Windows dev launcher without opening a GUI or GPU
         shell: pwsh
         run: ./scripts/test-windows-dev.ps1
