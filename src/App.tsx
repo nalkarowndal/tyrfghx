@@ -47,17 +47,35 @@ export default function App() {
     return () => controller.abort();
   }, [active, status, refreshKey, desktopApp]);
 
+  function requestCatalogRefresh() {
+    // Clear synchronously on click, not only later when the effect runs.
+    setModels([]);
+    setModelsError("");
+    setLoadingModels(true);
+    setRefreshKey(value => value + 1);
+  }
+
+  function selectTool(tool: string) {
+    if (tool !== active && (tool === "모델 관리" || tool === "이미지 생성")) {
+      setModels([]);
+      setModelsError("");
+      // A Python-less browser cannot request models until its API connects.
+      setLoadingModels(desktopApp || status !== null);
+    }
+    setActive(tool);
+  }
+
   const availableModels = loadingModels || modelsError ? [] : models;
 
   return <div className="shell">
     <aside className="sidebar"><h1>aiimage</h1><p className="muted">Local Creative Studio</p>
-      <nav aria-label="작업 도구">{tools.map(t => <button type="button" key={t} className={active === t ? "selected" : ""} aria-current={active === t ? "page" : undefined} onClick={() => setActive(t)}>{t}</button>)}</nav>
+      <nav aria-label="작업 도구">{tools.map(t => <button type="button" key={t} className={active === t ? "selected" : ""} aria-current={active === t ? "page" : undefined} onClick={() => selectTool(t)}>{t}</button>)}</nav>
     </aside>
     <main><header><strong>{active}</strong><span className="state">{status ? "Python API 연결됨" : desktopApp ? "Tauri 모델 관리 사용 가능 · Python API 미연결" : error ? "백엔드 연결 안 됨" : "연결 확인 중"}</span></header>
       {active === "이미지 생성"
-        ? <section className="workspace model-workspace"><GenerationWorkspace models={availableModels} loadingModels={loadingModels} modelsError={desktopApp || status ? modelsError : error || "모델 목록을 보려면 Python API를 실행하세요."} onRefreshModels={() => setRefreshKey(v => v + 1)} /></section>
+        ? <section className="workspace model-workspace"><GenerationWorkspace models={availableModels} loadingModels={loadingModels} modelsError={desktopApp || status ? modelsError : error || "모델 목록을 보려면 Python API를 실행하세요."} onRefreshModels={requestCatalogRefresh} /></section>
         : active === "모델 관리"
-        ? <div className="workspace model-workspace"><ModelLibrary items={availableModels} isLoading={loadingModels} error={desktopApp || status ? modelsError : error || "백엔드를 실행해야 모델 목록을 확인할 수 있습니다."} onRefresh={() => setRefreshKey(v => v + 1)} /></div>
+        ? <div className="workspace model-workspace"><ModelLibrary items={availableModels} isLoading={loadingModels} error={desktopApp || status ? modelsError : error || "백엔드를 실행해야 모델 목록을 확인할 수 있습니다."} onRefresh={requestCatalogRefresh} /></div>
         : <section className="workspace"><div className="placeholder"><div className="symbol">◇</div><h2>{active} 작업 공간</h2><p>현재 생성 엔진은 연결되지 않았습니다. 모델 목록 등록은 ‘모델 관리’ 메뉴에서 시작할 수 있습니다.</p><button type="button" disabled>생성 시작 (준비 중)</button></div></section>}
     </main>
     <aside className="inspector"><h2>작업 상태</h2><p>M3-2 · 생성 설정 및 결과 갤러리</p>
