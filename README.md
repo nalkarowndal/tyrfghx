@@ -3,13 +3,24 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-32 (native Windows release launch probe and WebDriver session diagnostics).**
+> **Current milestone: M3-33 (strictly test-only embedded Windows WebDriver runner).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-33: isolated embedded Windows GUI test path
+
+M3-32 confirmed that aiimage's GPU-disabled release executable creates a
+native Windows window handle, but the external `tauri-driver` session still
+failed. M3-33 adds an **optional** Rust WebDriver plugin behind the
+`e2e-webdriver` Cargo feature, separate Tauri permissions/config, and explicit
+runtime environment flags. A new opt-in GitHub Actions workflow can run
+existing read-only UI checks without installing external EdgeDriver.
+**Normal production builds do not include the plugin.** See
+[M3-33 embedded Windows WebDriver](docs/M3_EMBEDDED_WINDOWS_WEBDRIVER.md).
 
 ## M3-32: distinguish Windows native app startup from WebDriver attachment
 
