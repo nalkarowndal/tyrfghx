@@ -16,6 +16,8 @@ pub struct GenerationPreview {
     pub id: String,
     pub image_src: String,
     pub size_bytes: u64,
+    pub width: u32,
+    pub height: u32,
 }
 
 fn is_known_name(name: &str) -> bool {
@@ -57,11 +59,13 @@ fn list_previews(root: &Path) -> Result<Vec<GenerationPreview>, String> {
         let Ok(bytes) = fs::read(&path) else { continue };
         if bytes.len() as u64 != expected_size || !bytes.starts_with(PNG_SIGNATURE) { continue; }
         // A magic header alone does not make a decodable PNG safe to display.
-        if super::generation_result::decode_png(&path).is_err() { continue; }
+        let Ok((width, height)) = super::generation_result::decode_png(&path) else { continue };
         result.push(GenerationPreview {
             id: name,
             image_src: format!("data:image/png;base64,{}", STANDARD.encode(bytes)),
             size_bytes: expected_size,
+            width,
+            height,
         });
     }
     Ok(result)
@@ -98,6 +102,7 @@ mod tests {
         let image = &list_previews(dir.path()).unwrap()[0];
         assert_eq!(image.id, id);
         assert!(image.image_src.starts_with("data:image/png;base64,"));
+        assert_eq!((image.width, image.height), (2, 2));
     }
 
     #[test]

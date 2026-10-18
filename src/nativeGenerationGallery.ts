@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-export type GenerationPreview = { id: string; image_src: string; size_bytes: number };
+export type GenerationPreview = { id: string; image_src: string; size_bytes: number; width: number; height: number };
 
 /** Returns only whitelisted bounded local PNG previews; never receives a filesystem path. */
 export async function getNativeGenerationPreviews(): Promise<GenerationPreview[]> {
