@@ -19,6 +19,8 @@ jobs:
         run: npm audit --audit-level=moderate
       - run: npm run build
       - run: npm test
+      - name: Test M3-26 W3C WebDriver harness (mock protocol only; no GUI)
+        run: node --test scripts/windows-ui-e2e.test.mjs
   backend:
     runs-on: ubuntu-latest
     steps:
