@@ -26,6 +26,9 @@ It does not enable GPU generation in browsers, release apps or HTTP APIs.
    invalid telemetry, unsafe model metadata or release/browser execution
    restrictions CANNOT be bypassed. The starting job shows a warning.
 8. The reservation stays active until a supervised child is registered.
+   The blocking CUDA probe itself owns the reservation until completion,
+   even if the invoking webview closes. On success it transfers the
+   reservation back to the launcher until JobManager registers the child.
    An error releases it by RAII, so the system cannot stay locked.
 9. Existing Windows Job Objects 30-minute watchdog, cancellation,
    restricted script, bounded PNG decoding, hash and gallery checks remain.
