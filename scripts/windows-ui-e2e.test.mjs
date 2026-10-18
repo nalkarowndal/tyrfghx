@@ -13,6 +13,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
   let screen = "generation";
   let preflight = false;
   let closed = false;
+  let refreshCount = 0;
   const server = createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -31,7 +32,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
       let ids = [];
       if (payload.value === "body") ids = ["body"];
       else if (payload.value.startsWith("nav[")) ids = ["nav-model", "nav-image"];
-      else if (payload.value === "button") ids = ["refresh", "preflight", "gpu"];
+      else if (payload.value === "button") ids = ["refresh", "gen-refresh", "preflight", "gpu"];
       else if (payload.value === 'input[aria-label="실제 GPU 추론 실행 동의"]' && !missingConsent) ids = ["consent"];
       else if (payload.value === 'input[aria-label="VRAM 부족 위험 별도 동의"]') ids = ["vram"];
       response = makeResponse(ids.map(id => ({ [ELEMENT]: id })));
@@ -41,6 +42,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
         const names = {
           "nav-model": "모델 관리", "nav-image": "이미지 생성", refresh: "목록 새로고침",
           preflight: "입력 사전 검사", gpu: "GPU 생성 시작 (개발판 전용)",
+          "gen-refresh": "모델 목록 새로고침",
         };
         let body = "aiimage ";
         body += screen === "models" ? "로컬 모델 관리 데스크톱 모델 가져오기" : "이미지 생성 입력 사전 검사";
@@ -52,6 +54,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
         if (id === "nav-model") screen = "models";
         if (id === "nav-image") screen = "generation";
         if (id === "preflight") preflight = true;
+        if (id === "gen-refresh") refreshCount += 1;
         if (id === "gpu") throw Error("Unsafe GPU click forbidden in E2E");
         response = makeResponse(null);
       } else if (operation === "enabled") {
@@ -67,7 +70,9 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
   });
   await new Promise(done => server.listen(0, "127.0.0.1", done));
   const addr = server.address();
-  return { url: `http://127.0.0.1:${addr.port}`, get closed() { return closed }, close: () => new Promise(done => server.close(done)) };
+  return { url: `http://127.0.0.1:${addr.port}`, get closed() { return closed },
+    get refreshCount() { return refreshCount },
+    close: () => new Promise(done => server.close(done)) };
 }
 
 test("M3-26 protocol: actual model-navigation and safe preflight command order", async () => {
@@ -80,6 +85,7 @@ test("M3-26 protocol: actual model-navigation and safe preflight command order",
       consent_unchecked_after_navigation: "passed",
     });
     assert.equal(server.closed, true, "session must always close");
+    assert.equal(server.refreshCount, 1, "catalog refresh must be exercised exactly once");
   } finally { await server.close(); }
 });
 
