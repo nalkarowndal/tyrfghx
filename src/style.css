@@ -54,3 +54,8 @@
 .vram-preflight-panel .muted{line-height:1.6}
 .vram-preflight-panel .compatibility-result{overflow-wrap:anywhere}
 .vram-preflight-panel .refresh-button:disabled{opacity:.55;cursor:not-allowed}
+
+/* M3-14: static advice without untrusted CUDA traceback content. */
+.generation-recovery{margin-top:14px;padding:14px;border:1px solid #967b50;border-radius:12px;background:#2b2932;overflow-wrap:anywhere}
+.generation-recovery strong{font-weight:650}
+.generation-recovery p{font-size:12px;line-height:1.65;margin:9px 0}
