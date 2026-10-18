@@ -58,6 +58,9 @@ jobs:
       - name: Validate Windows native release probe path guard (no GUI)
         shell: pwsh
         run: ./scripts/windows-release-window-probe.ps1 -Application (Join-Path $PWD.Path "src-tauri/target/release/aiimage.exe") -ValidateOnly
+      - name: Check production WebDriver absence probe path policy (no app launch)
+        shell: pwsh
+        run: ./scripts/windows-production-webdriver-absence.ps1 -Application (Join-Path $PWD.Path "src-tauri/target/release/aiimage.exe") -ValidateOnly
       - name: Verify Rust toolchain
         run: rustc --version
       - name: Build and test native import/catalog/hash/generation flows
