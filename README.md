@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-10 (opt-in offline hardware acceptance CLI and sanitized QA evidence).**
+> **Current milestone: M3-11 (conservative VRAM-aware offline hardware acceptance).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,22 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## 8GB GPU VRAM safety gate (M3-11)
+
+The owner-run hardware acceptance CLI checks total/free CUDA VRAM before
+model loading. With less than 6 GiB total, less than 4 GiB free, or an
+over-768×768 trial on a GPU with at most 8 GiB total, execution is blocked
+until the user **explicitly** adds --acknowledge-vram-risk in addition
+to --execute --confirm-gpu. Missing CUDA or invalid device readings
+remain blocked regardless.
+
+These values are cautious initial screening rules, **not** certified
+requirements or proof that SDXL generation will succeed. Existing Tauri
+DEBUG generation has separate controls and is not changed by this feature.
+No real RTX 2060 SUPER hardware QA has been performed in GitHub CI.
+
+See [M3-11 VRAM safety guide](docs/M3_VRAM_SAFETY_GATE.md).
 
 ## Target-device acceptance reporting (M3-10)
 
