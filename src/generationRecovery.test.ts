@@ -16,6 +16,15 @@ describe("M3-14 safe GPU failure recovery messages", () => {
     expect(dependency?.offerSafePreset).toBe(false);
   });
 
+  it("requires manual inspection and app restart after process cleanup failure", () => {
+    const advice = describeGenerationFailure({
+      phase: "failed", failure_code: "process_cleanup_failed",
+    });
+    expect(advice?.offerSafePreset).toBe(false);
+    expect(advice?.nextStep).toContain("작업 관리자");
+    expect(advice?.nextStep).toContain("다시 시작");
+  });
+
   it("does not treat success, an unrecognized code or cancellation as OOM", () => {
     expect(describeGenerationFailure({
       phase: "succeeded", failure_code: undefined,
