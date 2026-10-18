@@ -74,3 +74,14 @@ References:
 - https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-terminatejobobject
 - https://doc.rust-lang.org/std/process/struct.Child.html
 - M3_PRIVATE_GENERATION_STDIN.md
+
+## Fail-closed recovery after an unverified group
+
+If a previous job reports `process_cleanup_failed`, the shared native
+JobManager refuses additional CUDA probes and new SDXL generation jobs
+until the desktop process is restarted. This also applies after a
+cancelled or timed-out job whose process group cannot be verified.
+The app asks the user to inspect the Windows Task Manager and check
+remaining processes before restarting; a 512×512 preset is NOT
+sufficient to override an unverified process cleanup. Normal successful
+or correctly terminated jobs remain available for the next request.
