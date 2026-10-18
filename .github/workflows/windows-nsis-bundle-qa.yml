@@ -1,0 +1,47 @@
+name: Windows NSIS installer build QA (opt-in)
+on:
+  pull_request:
+    types: [opened, synchronize, labeled]
+  workflow_dispatch:
+    inputs:
+      confirm_unsigned_qa:
+        description: "Authorize an unsigned, NOT PUBLISHED installer build on disposable Windows CI (frontend shell only)"
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+
+jobs:
+  unsigned-nsis-qa:
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.confirm_unsigned_qa == true) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'run-nsis-bundle-qa')) }}
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install npm dependencies from reviewed lockfile
+        run: npm ci --no-fund
+      - name: Validate NSIS-only opt-in config and default production isolation (no installer)
+        shell: pwsh
+        run: ./scripts/windows-nsis-bundle-qa.ps1
+      - name: Verify Cargo.lock is committed and feature-gated WebDriver is excluded
+        shell: pwsh
+        run: |
+          cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --locked --no-deps | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "nsis_bundle_qa: cargo_metadata_failed" }
+          $tree = cargo tree --manifest-path src-tauri/Cargo.toml --locked --edges normal
+          if ($LASTEXITCODE -ne 0) { throw "nsis_bundle_qa: cargo_tree_failed" }
+          if ($tree -match 'tauri-plugin-wdio-webdriver') { throw "nsis_bundle_qa: embedded_http_plugin_in_production_graph" }
+      - name: Compile unsigned frontend-shell-only Windows NSIS installer
+        run: npm run tauri -- build --bundles nsis --config src-tauri/tauri.nsis-qa.conf.json
+      - name: Verify installer PE header, SHA-256 and expected output without executing it
+        shell: pwsh
+        run: ./scripts/windows-nsis-bundle-qa.ps1 -VerifyBundle
+      - name: Reject Cargo.lock changes during installer compilation
+        shell: bash
+        run: git diff --exit-code -- src-tauri/Cargo.lock
+      # No installer execution, artifact upload, GitHub release, signing,
+      # installer distribution or model weight/GPU action in this job.
