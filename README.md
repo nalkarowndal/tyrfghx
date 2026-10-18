@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-18 (owner-run system NVIDIA VRAM sampling for Windows QA).**
+> **Current milestone: M3-19 (read-only review of owner-provided generation and VRAM QA evidence).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,26 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Review owner-run GPU QA evidence without false qualification (M3-19)
+
+The offline `backend/hardware_evidence_review.py` CLI can read one
+**M3-10 SDXL hardware acceptance JSON** and one **M3-18 nvidia-smi
+observation JSON**, with explicit `--confirm-review`. It strictly
+limits input size, duplicate keys, status/measurement consistency and
+file type, then reports the two source-file SHA-256 digests and only
+allowlisted observations. It never invokes CUDA, loads models,
+uploads any data or writes a report file automatically.
+
+`evidence_available_for_manual_review` means only that both JSON
+files **claim** a decoded image and a complete system-level
+observation. They are not authenticated hardware measurements. The
+real PNG pixels, process tree, RTX GPU-specific VRAM recovery, Windows
+GUI, network isolation and common-session provenance all remain
+`not_tested` until independently reviewed by the operator. GitHub
+CI uses mocked data only.
+
+See [M3-19 local QA evidence review](docs/M3_HARDWARE_EVIDENCE_REVIEW.md).
 
 ## Observe system VRAM on the real Windows GPU (M3-18)
 
