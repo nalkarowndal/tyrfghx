@@ -8,7 +8,7 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::mpsc,
+    sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}},
     thread,
     time::{Duration, Instant},
 };
@@ -107,8 +107,10 @@ fn trusted_python(repo: &Path) -> Result<PathBuf, String> {
 /// Run the exact same bounded, OS-supervised local CUDA probe used by
 /// the diagnostics UI. The generation command evaluates memory thresholds
 /// from the resulting device reading without trusting browser fields.
-pub(crate) fn read_local_vram(repo: PathBuf) -> Result<(u64, u64), String> {
-    let report = run_probe(repo)?;
+pub(crate) fn read_local_vram(
+    repo: PathBuf, cleanup_fault: Arc<AtomicBool>
+) -> Result<(u64, u64), String> {
+    let report = run_probe(repo, cleanup_fault)?;
     if report.status != "ready_for_trial" {
         return Err(format!(
             "CUDA 환경 점검에 실패하여 생성을 차단했습니다 ({}). GPU 진단을 확인하세요.",
@@ -119,7 +121,21 @@ pub(crate) fn read_local_vram(repo: PathBuf) -> Result<(u64, u64), String> {
     Ok((gpu.total_vram_bytes, gpu.free_vram_bytes_at_check))
 }
 
-fn run_probe(repo: PathBuf) -> Result<GpuDiagnosticReport, String> {
+/// Every exit path for an attached diagnostic must verify complete process
+/// cleanup. A missing signal is NOT equivalent to a successful Job drain.
+fn terminate_and_latch(
+    job: &super::windows_process_job::ProcessJob,
+    fault: &AtomicBool,
+) -> Result<(), String> {
+    let outcome = job.terminate().and_then(|_| job.verify_drained(Duration::from_secs(2)));
+    if outcome.is_err() {
+        fault.store(true, Ordering::SeqCst);
+        return Err("GPU 진단 종료 후 Windows 하위 프로세스 정리를 검증하지 못했습니다. 앱을 다시 시작하기 전까지 GPU 작업을 차단합니다.".into());
+    }
+    Ok(())
+}
+
+fn run_probe(repo: PathBuf, cleanup_fault: Arc<AtomicBool>) -> Result<GpuDiagnosticReport, String> {
     let python = trusted_python(&repo)?;
     let mut cmd = Command::new(python);
     cmd.arg("-s")
@@ -152,7 +168,7 @@ fn run_probe(repo: PathBuf) -> Result<GpuDiagnosticReport, String> {
     let pipe = match child.stdout.take() {
         Some(p) => p,
         None => {
-            let _ = job.terminate();
+            let _ = terminate_and_latch(&job, &cleanup_fault);
             let _ = child.wait();
             return Err("GPU 진단 결과를 읽을 수 없습니다.".into());
         }
@@ -170,26 +186,26 @@ fn run_probe(repo: PathBuf) -> Result<GpuDiagnosticReport, String> {
             Ok(Some(status)) => break status,
             Ok(None) => {
                 if started.elapsed() >= TIMEOUT {
-                    let _ = job.terminate();
+                    let cleanup = terminate_and_latch(&job, &cleanup_fault);
                     let _ = child.kill();
                     let _ = child.wait();
+                    cleanup?;
                     return Err("GPU 환경 진단이 25초 시간 제한을 초과했습니다.".into());
                 }
                 thread::sleep(Duration::from_millis(100));
             }
             Err(_) => {
-                let _ = job.terminate();
+                let cleanup = terminate_and_latch(&job, &cleanup_fault);
                 let _ = child.kill();
                 let _ = child.wait();
+                cleanup?;
                 return Err("GPU 진단 프로세스 상태를 확인하지 못했습니다.".into());
             }
         }
     };
     // Job group termination acknowledgement alone is insufficient:
     // verify that no active child or grandchild process remains.
-    job.terminate()
-        .and_then(|_| job.verify_drained(Duration::from_secs(2)))
-        .map_err(|_| "GPU 진단 종료 후 Windows 하위 프로세스 정리를 검증하지 못했습니다.".to_string())?;
+    terminate_and_latch(&job, &cleanup_fault)?;
     if !exit_status.success() {
         return Err("GPU 진단 프로세스가 실패했습니다. 로컬 PyTorch 설치를 확인하세요.".into());
     }
@@ -207,11 +223,12 @@ pub async fn inspect_local_gpu(
         return Err("GPU 환경 검사는 Windows Tauri 개발판에서만 지원합니다.".into());
     }
     let permit = state.reserve_diagnostic()?;
+    let cleanup_fault = state.cleanup_fault_flag();
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
     tauri::async_runtime::spawn_blocking(move || {
         // Always release the reservation, even on error or panic.
         let _permit = permit;
-        run_probe(repo)
+        run_probe(repo, cleanup_fault)
     })
         .await.map_err(|_| "GPU 진단 백그라운드 작업이 종료됐습니다.".to_string())?
 }
