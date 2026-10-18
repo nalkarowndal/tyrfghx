@@ -21,7 +21,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$checks = New-Object 'System.Collections.Generic.List[object]'
+$checks = [System.Collections.Generic.List[object]]::new()
 
 function Add-Check {
     param([string] $Name, [string] $Status, [string] $Explanation, [bool] $Required = $false)
@@ -173,7 +173,7 @@ $report = [pscustomobject]@{
     milestone = "M3-22"
     status = if ($ready) { "development_launch_prerequisites_observed" } else { "missing_required_prerequisites" }
     execution = if ($Start) { "requested" } else { "check_only" }
-    checks = @($checks)
+    checks = $checks.ToArray()
     warning = "Prerequisite presence is not an actual GUI/GPU acceptance test; release GPU execution remains disabled."
 }
 
