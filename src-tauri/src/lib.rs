@@ -8,6 +8,46 @@ mod windows_process_job;
 mod gpu_diagnostics;
 mod vram_safety;
 
+// The embedded HTTP test server must never activate by a Cargo feature alone.
+// Validate the complete opt-in policy independently of Tauri or network I/O.
+#[cfg(any(test, feature = "e2e-webdriver"))]
+fn embedded_webdriver_authorized(enable: Option<&str>, port: Option<&str>) -> bool {
+    enable == Some("1")
+        && port
+            .and_then(|raw| raw.parse::<u16>().ok())
+            .is_some_and(|value| value >= 1024)
+}
+
+#[cfg(test)]
+mod embedded_driver_policy_tests {
+    use super::embedded_webdriver_authorized;
+
+    #[test]
+    fn rejects_partial_missing_or_invalid_runtime_opt_in() {
+        for (enable, port) in [
+            (None, None),
+            (Some("1"), None),
+            (None, Some("4445")),
+            (Some("0"), Some("4445")),
+            (Some("true"), Some("4445")),
+            (Some("1"), Some("0")),
+            (Some("1"), Some("1023")),
+            (Some("1"), Some("not-a-port")),
+            (Some("1"), Some("65536")),
+            (Some("1 "), Some("4445")),
+        ] {
+            assert!(!embedded_webdriver_authorized(enable, port));
+        }
+    }
+
+    #[test]
+    fn accepts_only_explicit_enable_with_unprivileged_numeric_port() {
+        assert!(embedded_webdriver_authorized(Some("1"), Some("4445")));
+        assert!(embedded_webdriver_authorized(Some("1"), Some("65535")));
+        assert!(embedded_webdriver_authorized(Some("1"), Some("1024")));
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -20,11 +60,9 @@ pub fn run() {
     // explicit environment variables from an operator-owned CI runner.
     #[cfg(feature = "e2e-webdriver")]
     let builder = {
-        let enabled = std::env::var("AIIMAGE_E2E_ENABLE").as_deref() == Ok("1");
-        let port_is_valid = std::env::var("TAURI_WEBDRIVER_PORT")
-            .ok().and_then(|port| port.parse::<u16>().ok())
-            .map(|port| port >= 1024).unwrap_or(false);
-        if enabled && port_is_valid {
+        let enable = std::env::var("AIIMAGE_E2E_ENABLE").ok();
+        let port = std::env::var("TAURI_WEBDRIVER_PORT").ok();
+        if embedded_webdriver_authorized(enable.as_deref(), port.as_deref()) {
             builder.plugin(tauri_plugin_wdio_webdriver::init())
         } else {
             builder
