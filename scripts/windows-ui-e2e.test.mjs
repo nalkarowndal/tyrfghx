@@ -27,8 +27,13 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
     if (url === "/status") response = makeResponse({ ready: true });
     else if (url === "/session" && req.method === "POST") {
       if (sessionDelayMillis > 0) await new Promise(done => setTimeout(done, sessionDelayMillis));
-      assert.equal(payload.capabilities.alwaysMatch["tauri:options"].application, "C:\\fake\\aiimage.exe");
-      assert.equal(payload.capabilities.alwaysMatch.browserName, "wry");
+      if (payload.capabilities.alwaysMatch["tauri:options"]) {
+        assert.equal(payload.capabilities.alwaysMatch["tauri:options"].application, "C:\\fake\\aiimage.exe");
+        assert.equal(payload.capabilities.alwaysMatch.browserName, "wry");
+      } else {
+        // Embedded WebDriver is already inside the launched app.
+        assert.deepEqual(payload.capabilities.alwaysMatch, {});
+      }
       response = sessionError ? makeResponse({ error: sessionError }, 500)
         : makeResponse({ sessionId: "a1234567", capabilities: {} });
     } else if (url === "/session/a1234567" && req.method === "DELETE") {
@@ -274,5 +279,17 @@ test("M3-32: sanitize server-supplied path and stack in protocol error field", a
     assert.equal(safeWebDriverErrorCode(privateMessage), "protocol_error");
     assert.equal(safeWebDriverErrorCode("unknown command"), "unknown command");
     assert.equal(describeNativeSessionProblem("session not created").startsWith("native_session_not_created"), true);
+  } finally { await server.close(); }
+});
+
+test("M3-33: embedded in-app WebDriver uses no external app-launch capabilities", async () => {
+  const server = await fakeDriver();
+  try {
+    const result = await runWindowsUiSmoke(
+      server.url, "C:\\fake\\aiimage.exe", { embedded: true },
+    );
+    assert.equal(result.native_release_policy, "attested_disabled");
+    assert.equal(server.closed, true, "embedded W3C session must close");
+    assert.equal(server.modelRefreshCount, 1);
   } finally { await server.close(); }
 });

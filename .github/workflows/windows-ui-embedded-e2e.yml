@@ -1,0 +1,41 @@
+name: Windows embedded UI E2E (opt-in)
+on:
+  pull_request:
+    types: [opened, synchronize, labeled]
+  workflow_dispatch:
+    inputs:
+      confirm_embedded_test_only:
+        description: "Explicitly authorize feature-gated embedded HTTP WebDriver on disposable hosted Windows CI, never production"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  embedded-windows-ui:
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.confirm_embedded_test_only == true) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'run-embedded-ui-e2e')) }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install locked frontend dependencies
+        run: npm ci --no-fund
+      - name: Exercise both WebDriver protocol modes without GUI
+        run: node --test scripts/windows-ui-e2e.test.mjs
+      - name: Assert normal Tauri build has no embedded driver feature
+        shell: pwsh
+        run: |
+          if ((Get-Content src-tauri/Cargo.toml -Raw) -notmatch 'default = \[\]') { throw 'E2E Cargo feature must not be default' }
+          if ((Get-Content src-tauri/tauri.conf.json -Raw) -match 'webdriver-e2e') { throw 'Production Tauri config must exclude E2E capability' }
+      - name: Build GPU-disabled E2E-only Tauri executable, never an installer
+        run: npm run tauri -- build --no-bundle --features e2e-webdriver --config src-tauri/tauri.e2e.conf.json
+      - name: Run real Windows embedded WebDriver UI checks without GPU consent
+        shell: pwsh
+        env:
+          AIIMAGE_E2E_APP: ${{ github.workspace }}\src-tauri\target\release\aiimage.exe
+        run: node scripts/windows-ui-e2e.mjs --run --embedded

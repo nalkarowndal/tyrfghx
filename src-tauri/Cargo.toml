@@ -3,6 +3,12 @@ name = "aiimage"
 version = "0.1.0"
 edition = "2021"
 
+# HTTP WebDriver is opt-in and is never linked into ordinary production builds.
+# Do not enable the feature in an installer / normal release build.
+[features]
+default = []
+e2e-webdriver = ["dep:tauri-plugin-wdio-webdriver"]
+
 [lib]
 name = "aiimage_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -13,6 +19,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

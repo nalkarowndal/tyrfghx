@@ -1,0 +1,10 @@
+{
+  "identifier": "webdriver-e2e",
+  "description": "ONLY for explicit E2E builds with the e2e-webdriver Cargo feature. Never include in ordinary production capabilities.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "wdio-webdriver:default"
+  ]
+}

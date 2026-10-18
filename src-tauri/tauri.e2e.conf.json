@@ -1,0 +1,10 @@
+{
+  "app": {
+    "security": {
+      "capabilities": [
+        "default",
+        "webdriver-e2e"
+      ]
+    }
+  }
+}
