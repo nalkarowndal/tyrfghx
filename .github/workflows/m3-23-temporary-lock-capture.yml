@@ -1,0 +1,43 @@
+name: Temporary M3-23 lockfile capture
+on:
+  push:
+    branches:
+      - feat/m3-23-locked-dependency-security
+permissions:
+  contents: read
+jobs:
+  capture-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Generate npm lock without installing scripts
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Emit bounded lockfile chunks for checked-in GitHub connector write
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const data = fs.readFileSync('package-lock.json', 'utf8');
+          const obj = JSON.parse(data);
+          if (obj.name !== 'aiimage' || obj.lockfileVersion !== 3 || !obj.packages?.['']) throw Error('Unexpected lockfile');
+          const base64 = Buffer.from(data, 'utf8').toString('base64');
+          const chunks = base64.match(/.{1,1024}/g) || [];
+          console.log('M323_LOCKMETA ' + JSON.stringify({parts:chunks.length,bytes:Buffer.byteLength(data),lockfileVersion:obj.lockfileVersion}));
+          chunks.forEach((c,i)=>console.log('M323_LOCKPART ' + i + ' ' + c));
+          console.log('M323_LOCKDONE ' + chunks.length);
+          NODE
+      - name: Report named npm vulnerability details
+        run: |
+          npm audit --json > m323-audit.json || true
+          node - <<'NODE'
+          const a=require('./m323-audit.json');
+          console.log('M323_AUDITCOUNTS ' + JSON.stringify(a.metadata?.vulnerabilities || {}));
+          const problems=Object.entries(a.vulnerabilities||{}).map(([name,v])=>({
+            name, severity:v.severity, isDirect:v.isDirect,
+            range:v.range, fixAvailable:v.fixAvailable,
+            via:(v.via||[]).filter(x=>typeof x==='object').map(x=>({name:x.name,title:x.title,url:x.url,range:x.range}))
+          }));
+          console.log('M323_AUDITDETAILS '+JSON.stringify(problems).slice(0,12000));
+          NODE
