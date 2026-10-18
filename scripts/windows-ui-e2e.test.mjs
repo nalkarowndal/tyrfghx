@@ -1,7 +1,7 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { runWindowsUiSmoke, requestWebDriver, waitForDriver } from "./windows-ui-e2e.mjs";
+import { runWindowsUiSmoke, requestWebDriver, waitForDriver, allocateDriverPorts } from "./windows-ui-e2e.mjs";
 
 const ELEMENT = "element-6066-11e4-a52e-4f735466cecf";
 const makeResponse = (reply, status = 200) => ({
@@ -9,11 +9,13 @@ const makeResponse = (reply, status = 200) => ({
 });
 
 async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChecked = false,
-  vramChecked = false, missingConsent = false } = {}) {
+  vramChecked = false, missingConsent = false,
+  catalogErrorOnce = false, staleCardOnError = false } = {}) {
   let screen = "generation";
   let preflight = false;
   let closed = false;
   let refreshCount = 0;
+  let modelRefreshCount = 0;
   const server = createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -33,6 +35,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
       if (payload.value === "body") ids = ["body"];
       else if (payload.value.startsWith("nav[")) ids = ["nav-model", "nav-image"];
       else if (payload.value === "button") ids = ["refresh", "gen-refresh", "preflight", "gpu"];
+      else if (payload.value === ".model-item" && staleCardOnError && catalogErrorOnce && modelRefreshCount === 1) ids = ["stale-model"];
       else if (payload.value === 'input[aria-label="실제 GPU 추론 실행 동의"]' && !missingConsent) ids = ["consent"];
       else if (payload.value === 'input[aria-label="VRAM 부족 위험 별도 동의"]') ids = ["vram"];
       response = makeResponse(ids.map(id => ({ [ELEMENT]: id })));
@@ -46,6 +49,11 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
         };
         let body = "aiimage ";
         body += screen === "models" ? "로컬 모델 관리 데스크톱 모델 가져오기" : "이미지 생성 입력 사전 검사";
+        if (screen === "models") {
+          body += catalogErrorOnce && modelRefreshCount === 1
+            ? " 모델 목록 오류: 다시 확인하세요."
+            : " 표시할 모델이 없습니다. 검색 조건 또는 파일 위치를 확인해 주세요.";
+        }
         if (screen === "generation" && preflight && showPreflight) {
           body += " 유효한 Safetensors 체크포인트를 선택해야 합니다.";
         }
@@ -55,6 +63,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
         if (id === "nav-image") screen = "generation";
         if (id === "preflight") preflight = true;
         if (id === "gen-refresh") refreshCount += 1;
+        if (id === "refresh") modelRefreshCount += 1;
         if (id === "gpu") throw Error("Unsafe GPU click forbidden in E2E");
         response = makeResponse(null);
       } else if (operation === "enabled") {
@@ -72,6 +81,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
   const addr = server.address();
   return { url: `http://127.0.0.1:${addr.port}`, get closed() { return closed },
     get refreshCount() { return refreshCount },
+    get modelRefreshCount() { return modelRefreshCount },
     close: () => new Promise(done => server.close(done)) };
 }
 
@@ -83,6 +93,7 @@ test("M3-26 protocol: actual model-navigation and safe preflight command order",
     assert.deepEqual(checks, {
       navigation: "passed", missing_checkpoint_preflight: "passed", release_gpu_block: "passed",
       consent_unchecked_after_navigation: "passed",
+      catalog_error_recovery: "not_exercised",
     });
     assert.equal(server.closed, true, "session must always close");
     assert.equal(server.refreshCount, 1, "catalog refresh must be exercised exactly once");
@@ -144,4 +155,40 @@ test("M3-29 release safety: fail closed if required checkbox is missing", async 
     );
     assert.equal(server.closed, true);
   } finally { await server.close(); }
+});
+
+test("M3-30: choose distinct local ports rather than contacting fixed shared WebDriver", async () => {
+  const ports = await allocateDriverPorts();
+  assert(Number.isInteger(ports.port) && ports.port > 0 && ports.port < 65536);
+  assert(Number.isInteger(ports.nativePort) && ports.nativePort > 0 && ports.nativePort < 65536);
+  assert.notEqual(ports.port, ports.nativePort);
+  assert.equal(ports.url, `http://127.0.0.1:${ports.port}`);
+});
+
+test("M3-30: real GUI scenario mock retries only a naturally reported catalog error", async () => {
+  const server = await fakeDriver({ catalogErrorOnce: true });
+  try {
+    const result = await runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe");
+    assert.equal(result.catalog_error_recovery, "passed");
+    assert.equal(server.modelRefreshCount, 2, "Must click retry exactly once");
+    assert.equal(server.refreshCount, 1, "Generation model refresh is separate");
+    assert.equal(server.closed, true);
+  } finally { await server.close(); }
+});
+
+test("M3-30: refuse to retry a failed catalog that still exposes stale cards", async () => {
+  const server = await fakeDriver({ catalogErrorOnce: true, staleCardOnError: true });
+  try {
+    await assert.rejects(
+      runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe"),
+      /Failed catalog must not render cached model cards/,
+    );
+    assert.equal(server.modelRefreshCount, 1, "Fail before retry if stale cards exist");
+    assert.equal(server.closed, true);
+  } finally { await server.close(); }
+});
+
+test("M3-30: stop promptly if spawned native driver has already failed", async () => {
+  await assert.rejects(waitForDriver("http://127.0.0.1:65533", 250, () => true),
+    /Local Tauri WebDriver process exited before readiness/);
 });

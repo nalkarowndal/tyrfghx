@@ -10,8 +10,36 @@ import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createServer } from "node:net";
 
-export const DRIVER_URL = "http://127.0.0.1:4444";
+// A dedicated pair of ephemeral loopback ports prevents accidental connections
+// to another user's / previous test's WebDriver on ports 4444/4445.
+async function ephemeralLoopbackPort() {
+  const server = createServer();
+  try {
+    await new Promise((ok, fail) => {
+      server.once("error", fail);
+      server.listen(0, "127.0.0.1", ok);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string" || address.port < 1) {
+      throw new Error("Failed to reserve an ephemeral test port.");
+    }
+    return address.port;
+  } finally {
+    if (server.listening) await new Promise(done => server.close(done));
+  }
+}
+export async function allocateDriverPorts() {
+  const port = await ephemeralLoopbackPort();
+  let nativePort = await ephemeralLoopbackPort();
+  // The native driver and intermediary require distinct ports.
+  for (let attempt = 0; nativePort === port && attempt < 5; attempt++) {
+    nativePort = await ephemeralLoopbackPort();
+  }
+  if (port === nativePort) throw new Error("Unable to isolate both driver ports.");
+  return { port, nativePort, url: `http://127.0.0.1:${port}` };
+}
 const ELEM = "element-6066-11e4-a52e-4f735466cecf";
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
@@ -95,6 +123,43 @@ export async function runWindowsUiSmoke(base, application) {
     await waitText("로컬 모델 관리");
     await waitText("데스크톱 모델 가져오기");
     await clickButton("button", "목록 새로고침");
+
+    // Exercise catalog failure recovery if a safe error appears naturally.
+    // Never simulate failure by editing real model folders or touching weights.
+    const catalogState = async () => {
+      const text = await bodyText();
+      if (text.includes("모델 목록 오류:")) return "error";
+      if (text.includes("표시할 모델이 없습니다.") || (await elements(".model-item")).length > 0) {
+        return "loaded";
+      }
+      return "pending";
+    };
+    const awaitCatalog = async () => {
+      const limit = Date.now() + 12_000;
+      while (Date.now() < limit) {
+        const state = await catalogState();
+        if (state !== "pending") return state;
+        await sleep(200);
+      }
+      throw new Error("Catalog never reached a loaded or safe failure state.");
+    };
+    const firstCatalog = await awaitCatalog();
+    if (firstCatalog === "error") {
+      assert.equal((await elements(".model-item")).length, 0,
+        "Failed catalog must not render cached model cards");
+      await clickButton("button", "목록 새로고침");
+      // An old error can remain in the DOM for a render tick after clicking.
+      // Wait for the new catalog's loaded state, never treat the old error
+      // as an immediate recovery failure.
+      const limit = Date.now() + 12_000;
+      let recovered = false;
+      while (Date.now() < limit) {
+        if (await catalogState() === "loaded") { recovered = true; break; }
+        await sleep(200);
+      }
+      assert.equal(recovered, true,
+        "Manual retry must recover the model catalog after transient error");
+    }
     // The user never authorizes a GPU job here. Check the error/preflight path.
     await clickButton('nav[aria-label="작업 도구"] button', "이미지 생성");
     await waitText("입력 사전 검사");
@@ -141,6 +206,7 @@ export async function runWindowsUiSmoke(base, application) {
       missing_checkpoint_preflight: "passed",
       release_gpu_block: "passed",
       consent_unchecked_after_navigation: "passed",
+      catalog_error_recovery: firstCatalog === "error" ? "passed" : "not_exercised",
     };
   } finally {
     try { await call("DELETE", "", undefined); } catch { /* never mask test verdict */ }
@@ -157,15 +223,17 @@ export async function main(args = process.argv.slice(2)) {
   await access(path);
   const driverBinary = process.env.AIIMAGE_TAURI_DRIVER || "tauri-driver";
   // Read-only user-created tool on PATH; no shell interpolation, auto-install or escalation.
-  const driver = spawn(driverBinary, [], { stdio: "ignore", shell: false, windowsHide: true });
+  const { port, nativePort, url } = await allocateDriverPorts();
+  const driver = spawn(driverBinary, ["--port", String(port), "--native-port", String(nativePort)],
+    { stdio: "ignore", shell: false, windowsHide: true });
   let driverFailed = null;
   driver.on("error", () => { driverFailed = "start_failed"; });
   driver.on("exit", () => { driverFailed = "exited"; });
   try {
-    await waitForDriver(DRIVER_URL, 30_000, () => driverFailed !== null);
+    await waitForDriver(url, 30_000, () => driverFailed !== null);
     if (driverFailed) throw new Error("Tauri WebDriver failed to start.");
-    const result = await runWindowsUiSmoke(DRIVER_URL, path);
-    process.stdout.write(`M3-26 native Windows GUI checks passed: ${JSON.stringify(result)}\n`);
+    const result = await runWindowsUiSmoke(url, path);
+    process.stdout.write(`M3-30 native Windows GUI checks passed: ${JSON.stringify(result)}\n`);
   } finally {
     if (driver.exitCode === null) driver.kill();
   }
