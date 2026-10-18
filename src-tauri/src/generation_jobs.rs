@@ -235,12 +235,19 @@ pub async fn start_local_generation(
     // Reserve exclusive access BEFORE probing. Concurrent windows, manual
     // diagnostics and generation starts cannot race while CUDA is inspected.
     // The scoped permit is retained until the child is registered in state.
-    let _preflight_permit = state.reserve_diagnostic()?;
+    let probe_permit = state.reserve_diagnostic()?;
     let probe_repo = repo.clone();
-    let (total_vram, free_vram) = tauri::async_runtime::spawn_blocking(move || {
-        super::gpu_diagnostics::read_local_vram(probe_repo)
-    })
-    .await.map_err(|_| "CUDA 사전 검사 작업이 비정상 종료되었습니다.".to_string())??;
+    // The blocking worker OWNS the reservation while probing. If the
+    // originating UI/window cancels the async invoke, the worker still
+    // holds the reservation until the OS-supervised probe exits.
+    // On success, transfer it back and hold it through job registration.
+    let (_preflight_permit, (total_vram, free_vram)) =
+        tauri::async_runtime::spawn_blocking(move || {
+            let _held = probe_permit;
+            let reading = super::gpu_diagnostics::read_local_vram(probe_repo)?;
+            Ok::<_, String>((_held, reading))
+        })
+        .await.map_err(|_| "CUDA 사전 검사 작업이 비정상 종료되었습니다.".to_string())??;
     let memory_warning = super::vram_safety::check_trial(
         total_vram, free_vram, request.width, request.height,
         request.acknowledge_vram_risk,
