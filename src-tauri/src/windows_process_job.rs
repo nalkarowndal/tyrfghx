@@ -9,6 +9,8 @@ mod platform {
         os::windows::{io::AsRawHandle, process::CommandExt},
         process::{Child, Command},
         ptr,
+        thread,
+        time::{Duration, Instant},
     };
     use windows_sys::Win32::{
         Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
@@ -19,8 +21,10 @@ mod platform {
             },
             JobObjects::{
                 AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
-                TerminateJobObject, JobObjectExtendedLimitInformation,
-                JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                QueryInformationJobObject, TerminateJobObject,
+                JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
+                JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
             },
             Threading::{
                 OpenThread, ResumeThread, CREATE_SUSPENDED, THREAD_SUSPEND_RESUME,
@@ -121,6 +125,36 @@ mod platform {
             }
             Ok(())
         }
+
+        /// Query the whole Windows job, not merely the Python parent PID.
+        /// Calling TerminateJobObject only requests synchronous termination
+        /// of the group; only ActiveProcesses == 0 confirms no descendants
+        /// remain associated with this Job Object.
+        pub fn verify_drained(&self, limit: Duration) -> Result<(), String> {
+            let started = Instant::now();
+            loop {
+                let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+                let query = unsafe {
+                    QueryInformationJobObject(
+                        self.handle.0,
+                        JobObjectBasicAccountingInformation,
+                        &mut accounting as *mut _ as *mut _,
+                        mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                        ptr::null_mut(),
+                    )
+                };
+                if query == 0 {
+                    return Err("Windows 작업 그룹의 프로세스 종료 상태를 조회하지 못했습니다.".into());
+                }
+                if accounting.ActiveProcesses == 0 {
+                    return Ok(());
+                }
+                if started.elapsed() >= limit {
+                    return Err("종료 요청 후에도 Windows 작업 그룹에 실행 중인 프로세스가 남아 있습니다.".into());
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+        }
     }
 
     #[cfg(test)]
@@ -146,6 +180,29 @@ mod platform {
             };
             assert!(child.wait().unwrap().success());
             group.terminate().unwrap();
+        }
+
+        #[test]
+        fn cleanup_verification_checks_live_and_terminated_group() {
+            let mut cmd = Command::new("cmd.exe");
+            cmd.args(["/C", "ping -n 25 127.0.0.1 >nul"]);
+            cmd.stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            prepare_command(&mut cmd);
+            let mut child = cmd.spawn().unwrap();
+            let group = match ProcessJob::attach_and_resume(&mut child) {
+                Ok(job) => job,
+                Err(reason) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("Windows job assignment failed: {reason}");
+                }
+            };
+            assert!(group.verify_drained(Duration::from_millis(100)).is_err());
+            group.terminate().unwrap();
+            assert!(group.verify_drained(Duration::from_secs(2)).is_ok());
+            assert!(!child.wait().unwrap().success());
         }
 
         #[test]
@@ -181,6 +238,9 @@ mod platform {
             Err("Windows Job Objects are unavailable on this platform".into())
         }
         pub fn terminate(&self) -> Result<(), String> {
+            Err("Windows Job Objects are unavailable on this platform".into())
+        }
+        pub fn verify_drained(&self, _: std::time::Duration) -> Result<(), String> {
             Err("Windows Job Objects are unavailable on this platform".into())
         }
     }
