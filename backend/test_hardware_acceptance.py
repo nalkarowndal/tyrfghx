@@ -337,3 +337,25 @@ def test_cli_vram_override_without_double_consent_rejected(monkeypatch):
         main(["--checkpoint", "checkpoints/mock.safetensors",
               "--prompt", "Fixture", "--execute", "--acknowledge-vram-risk"])
     assert err.value.code == 2
+
+
+def test_valid_nvidia_name_retained_and_path_like_gpu_label_redacted(tmp_path):
+    fixture_model(tmp_path)
+    raw = gpu_report()
+    good = run_acceptance(settings(), model_root=tmp_path, inspect=True,
+                          gpu_inspector=lambda: raw)
+    assert good["gpu"]["name"] == "Synthetic RTX 2060 SUPER"
+    raw["gpu"]["name"] = r"C:\Users\private\checkpoint.safetensors"
+    suspicious = run_acceptance(settings(), model_root=tmp_path, inspect=True,
+                                gpu_inspector=lambda: raw)
+    assert suspicious["gpu"]["name"] == "unknown"
+    assert "private" not in json.dumps(suspicious)
+
+
+def test_unexpected_gpu_status_payload_safely_rejected(tmp_path):
+    fixture_model(tmp_path)
+    report = run_acceptance(
+        settings(), model_root=tmp_path, inspect=True,
+        gpu_inspector=lambda: {"status": ["path", "private"]},
+    )
+    assert report["gpu"] == {"status": "cuda_probe_error"}
