@@ -148,7 +148,16 @@ export async function runWindowsUiSmoke(base, application) {
       assert.equal((await elements(".model-item")).length, 0,
         "Failed catalog must not render cached model cards");
       await clickButton("button", "목록 새로고침");
-      assert.equal(await awaitCatalog(), "loaded",
+      // An old error can remain in the DOM for a render tick after clicking.
+      // Wait for the new catalog's loaded state, never treat the old error
+      // as an immediate recovery failure.
+      const limit = Date.now() + 12_000;
+      let recovered = false;
+      while (Date.now() < limit) {
+        if (await catalogState() === "loaded") { recovered = true; break; }
+        await sleep(200);
+      }
+      assert.equal(recovered, true,
         "Manual retry must recover the model catalog after transient error");
     }
     // The user never authorizes a GPU job here. Check the error/preflight path.
