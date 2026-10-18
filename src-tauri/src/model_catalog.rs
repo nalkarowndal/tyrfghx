@@ -174,8 +174,49 @@ pub(crate) fn scan_native_models(root: &Path) -> Result<Vec<ModelRecord>, String
     Ok(result)
 }
 
+// One-shot catalog error for an explicitly authorized embedded E2E binary.
+// NEVER compiled into the normal app: only a synthetic marker in OS temp is
+// consumed, never model files, registries, weights or user paths.
+#[cfg(feature = "e2e-webdriver")]
+fn consume_one_shot_e2e_fault() -> bool {
+    if std::env::var("AIIMAGE_E2E_ENABLE").as_deref() != Ok("1") {
+        return false;
+    }
+    let Ok(value) = std::env::var("AIIMAGE_E2E_CATALOG_FAILURE_MARKER") else {
+        return false;
+    };
+    let marker = Path::new(&value);
+    let Some(name) = marker.file_name().and_then(|x| x.to_str()) else {
+        return false;
+    };
+    let Some(token) = name.strip_prefix("aiimage-e2e-catalog-")
+        .and_then(|s| s.strip_suffix(".sentinel")) else {
+        return false;
+    };
+    if token.len() != 36 || !token.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
+        return false;
+    }
+    if !marker.is_absolute() { return false; }
+    let Some(parent) = marker.parent() else { return false; };
+    let Ok(parent_real) = parent.canonicalize() else { return false; };
+    let Ok(temp_real) = std::env::temp_dir().canonicalize() else { return false; };
+    if parent_real != temp_real { return false; }
+    let Ok(info) = fs::symlink_metadata(marker) else { return false; };
+    if !info.file_type().is_file() || info.len() != b"aiimage-e2e-fail-once\n".len() as u64 {
+        return false;
+    }
+    if fs::read(marker).ok().as_deref() != Some(b"aiimage-e2e-fail-once\n") {
+        return false;
+    }
+    fs::remove_file(marker).is_ok()
+}
+
 #[tauri::command]
 pub async fn list_local_models(app: tauri::AppHandle) -> Result<Vec<ModelRecord>, String> {
+    #[cfg(feature = "e2e-webdriver")]
+    if consume_one_shot_e2e_fault() {
+        return Err("Temporary synthetic E2E model-catalog error".into());
+    }
     let root = super::model_import::model_root(&app)?;
     tauri::async_runtime::spawn_blocking(move || scan_native_models(&root))
         .await.map_err(|e| e.to_string())?
