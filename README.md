@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-15 (private bounded stdin request for Windows GPU generation).**
+> **Current milestone: M3-16 (verified Windows process-group cleanup after local GPU jobs).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,24 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Verify all Windows job processes are gone after GPU work (M3-16)
+
+The DEBUG-only SDXL runner now checks `QueryInformationJobObject`
+accounting after Windows Job Object termination. A completed job is
+only considered cleaned up when `ActiveProcesses == 0`, with a
+bounded two-second verification check. Otherwise the job reports
+`process_cleanup_failed` even if the parent Python interpreter has
+exited or a cancellation/timeout was requested. The read-only CUDA
+diagnostic uses the same cleanup verification after its successful
+probe. Existing safeguards, private stdin, fixed offline processes,
+and conservative RTX 8GB memory policy remain.
+
+This proves **no processes remain associated with that Windows Job
+Object**, not that CUDA reclaimed all VRAM. Real RTX 2060 SUPER SDXL,
+GUI cancellation and system-wide GPU observation are still untested.
+
+See [M3-16 verified Windows process cleanup](docs/M3_VERIFIED_PROCESS_CLEANUP.md).
 
 ## Keep private generation prompts off process command lines (M3-15)
 

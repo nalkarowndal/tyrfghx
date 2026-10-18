@@ -185,8 +185,11 @@ fn run_probe(repo: PathBuf) -> Result<GpuDiagnosticReport, String> {
             }
         }
     };
-    // Ensure normally inherited helper processes do not hold stdout open.
-    let _ = job.terminate();
+    // Job group termination acknowledgement alone is insufficient:
+    // verify that no active child or grandchild process remains.
+    job.terminate()
+        .and_then(|_| job.verify_drained(Duration::from_secs(2)))
+        .map_err(|_| "GPU 진단 종료 후 Windows 하위 프로세스 정리를 검증하지 못했습니다.".to_string())?;
     if !exit_status.success() {
         return Err("GPU 진단 프로세스가 실패했습니다. 로컬 PyTorch 설치를 확인하세요.".into());
     }

@@ -68,6 +68,12 @@ impl Drop for DiagnosticPermit {
     fn drop(&mut self) { self.0.store(false, Ordering::SeqCst); }
 }
 
+/// Keep GPU work locked out after a failed cleanup check until the user
+/// inspects processes and restarts the desktop app.
+fn terminal_cleanup_unverified(snapshot: &JobSnapshot) -> bool {
+    snapshot.failure_code == Some("process_cleanup_failed")
+}
+
 impl JobManager {
     /// A scoped single-flight diagnostic reservation: protects concurrent
     /// windows and prevents a CUDA check overlapping with live inference.
@@ -77,6 +83,9 @@ impl JobManager {
             let status = job.snapshot.lock().map_err(|_| "Job status unavailable")?;
             if status.phase == "running" || status.phase == "cancelling" {
                 return Err("이미지 생성 중에는 CUDA 진단을 시작할 수 없습니다.".into());
+            }
+            if terminal_cleanup_unverified(&status) {
+                return Err("이전 CUDA 작업의 Windows 하위 프로세스 정리를 확인하지 못했습니다. 작업 관리자에서 상태를 확인하고 앱을 다시 시작하기 전까지 GPU 작업을 차단합니다.".into());
             }
         }
         self.diagnostic_active.compare_exchange(false, true,
@@ -290,6 +299,22 @@ fn fixed_generation_command(python: PathBuf, repo: &Path) -> Command {
     command
 }
 
+/// Every terminal state requires proof that the whole supervised Windows
+/// process group is empty, not just that Python's parent PID exited.
+/// Never report a completed cancellation while child workers may remain.
+fn enforce_cleanup_result(
+    phase: &mut String,
+    message: &mut String,
+    failure_code: &mut Option<&'static str>,
+    drained: bool,
+) {
+    if !drained {
+        *phase = "failed".into();
+        *failure_code = Some("process_cleanup_failed");
+        *message = "Windows 작업 그룹에 실행 중인 프로세스가 남아 있거나 종료 상태 확인에 실패했습니다. 작업 관리자에서 하위 프로세스를 확인하세요.".into();
+    }
+}
+
 #[tauri::command]
 pub fn local_generation_supported() -> bool {
     cfg!(all(windows, debug_assertions))
@@ -482,7 +507,9 @@ pub async fn start_local_generation(
             .unwrap_or_default();
         // Python may exit while its spawned workers are still running.
         // End the process group before announcing terminal completion.
-        let group_cleanup = worker_group.terminate();
+        let group_cleanup = worker_group.terminate().and_then(|_| {
+            worker_group.verify_drained(Duration::from_secs(2))
+        });
         let (mut phase, mut message) = outcome_message(
             exit_status.as_ref().is_some_and(|s| s.success()),
             &stderr,
@@ -491,11 +518,9 @@ pub async fn start_local_generation(
             timed_out,
         );
         let mut failure_code = classify_terminal_failure(&phase, &stderr);
-        if group_cleanup.is_err() && phase == "succeeded" {
-            phase = "failed".into();
-            failure_code = Some("process_cleanup_failed");
-            message = "Python은 종료됐으나 하위 프로세스 정리를 확인하지 못했습니다.".into();
-        }
+        enforce_cleanup_result(
+            &mut phase, &mut message, &mut failure_code, group_cleanup.is_ok()
+        );
         let mut verified = None;
         if phase == "succeeded" {
             let parsed = result_receiver.recv_timeout(Duration::from_secs(2))
@@ -685,6 +710,28 @@ mod tests {
         assert_eq!(classify_terminal_failure("succeeded", secret), None);
     }
 
+    #[test] fn cleanup_failure_is_never_reported_as_completed_or_cancelled() {
+        for state in ["succeeded", "failed", "cancelled", "timed_out"] {
+            let mut phase = state.to_string();
+            let mut message = "old outcome".to_string();
+            let mut failure_code = None;
+            enforce_cleanup_result(&mut phase, &mut message, &mut failure_code, false);
+            assert_eq!(phase, "failed");
+            assert_eq!(failure_code, Some("process_cleanup_failed"));
+            assert!(message.contains("작업 관리자"));
+            assert!(!message.contains("C:\\\\Users"));
+        }
+    }
+
+    #[test] fn verified_drain_keeps_the_existing_outcome() {
+        let mut phase = "cancelled".to_string();
+        let mut message = "사용자가 생성을 취소했습니다.".to_string();
+        let mut failure_code = Some("user_cancelled");
+        enforce_cleanup_result(&mut phase, &mut message, &mut failure_code, true);
+        assert_eq!(phase, "cancelled");
+        assert_eq!(failure_code, Some("user_cancelled"));
+    }
+
     #[test] fn runtime_limit_and_timeout_result() {
         let earlier = Instant::now() - Duration::from_secs(5);
         assert!(is_over_limit(earlier, Duration::from_secs(3)));
@@ -692,6 +739,21 @@ mod tests {
         let (phase, message) = outcome_message(false, "CUDA out of memory", None, false, true);
         assert_eq!(phase, "timed_out");
         assert!(message.contains("30분"));
+    }
+
+    #[test] fn cleanup_failure_blocks_new_generation_and_gpu_probe() {
+        // Standalone phase guard policy mirrors JobManager reservation.
+        let code = Some("process_cleanup_failed");
+        let mut state = JobSnapshot {
+            job_id: 42, phase: "failed".into(), message: "cleanup".into(),
+            elapsed_seconds: 5, time_limit_seconds: 1800,
+            result: None, failure_code: code,
+        };
+        assert!(terminal_cleanup_unverified(&state));
+        let other = JobSnapshot { failure_code: None, ..state.clone() };
+        assert!(!terminal_cleanup_unverified(&other));
+        state.phase = "cancelled".into();
+        assert!(terminal_cleanup_unverified(&state));
     }
 
     #[test] fn diagnostic_reservation_is_single_flight_and_releases_on_drop() {
