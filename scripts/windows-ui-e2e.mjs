@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
 
@@ -111,11 +111,11 @@ export async function waitForDriver(base, maxMillis = 30_000, driverFailed = () 
   throw new Error("Local WebDriver did not become ready.");
 }
 
-export async function runWindowsUiSmoke(base, application) {
+export async function runWindowsUiSmoke(base, application, { embedded = false } = {}) {
   // Launching a native Windows WebView2 process often exceeds a typical
   // fast DOM-command timeout; keep startup bounded but distinct from it.
   const session = await requestWebDriver(base, "POST", "/session", {
-    capabilities: { alwaysMatch: { browserName: "wry", "tauri:options": { application } } },
+    capabilities: { alwaysMatch: embedded ? {} : { browserName: "wry", "tauri:options": { application } } },
   }, 90_000);
   const sid = session?.sessionId;
   assert.match(sid ?? "", /^[a-zA-Z0-9-]{8,128}$/, "No valid native GUI session");
@@ -284,21 +284,45 @@ export async function main(args = process.argv.slice(2)) {
     throw new Error("AIIMAGE_E2E_APP must be an absolute .exe path to a release build.");
   const path = resolve(app);
   await access(path);
-  const driverBinary = process.env.AIIMAGE_TAURI_DRIVER || "tauri-driver";
-  // Read-only user-created tool on PATH; no shell interpolation, auto-install or escalation.
+  const embedded = args.includes("--embedded");
   const { port, nativePort, url } = await allocateDriverPorts();
-  const driver = spawn(driverBinary, ["--port", String(port), "--native-port", String(nativePort)],
-    { stdio: "ignore", shell: false, windowsHide: true });
-  let driverFailed = null;
-  driver.on("error", () => { driverFailed = "start_failed"; });
-  driver.on("exit", () => { driverFailed = "exited"; });
+  const driverBinary = process.env.AIIMAGE_TAURI_DRIVER || "tauri-driver";
+  // Embedded mode starts ONLY this validated release app, with feature-gated
+  // in-app WebDriver opt-in. No external EdgeDriver or tauri-driver is needed.
+  const child = embedded
+    ? spawn(path, [], {
+        cwd: dirname(path),
+        env: {
+          ...process.env,
+          AIIMAGE_E2E_ENABLE: "1",
+          TAURI_WEBDRIVER_PORT: String(port),
+        },
+        stdio: "ignore", shell: false, windowsHide: true,
+      })
+    : spawn(driverBinary, ["--port", String(port), "--native-port", String(nativePort)],
+        { stdio: "ignore", shell: false, windowsHide: true });
+  let failed = null;
+  child.on("error", () => { failed = "start_failed"; });
+  child.on("exit", () => { failed = "exited"; });
   try {
-    await waitForDriver(url, 30_000, () => driverFailed !== null);
-    if (driverFailed) throw new Error("Tauri WebDriver failed to start.");
-    const result = await runWindowsUiSmoke(url, path);
-    process.stdout.write(`M3-30 native Windows GUI checks passed: ${JSON.stringify(result)}\n`);
+    await waitForDriver(url, embedded ? 60_000 : 30_000, () => failed !== null);
+    if (failed) throw new Error("Windows WebDriver child exited before readiness.");
+    const result = await runWindowsUiSmoke(url, path, { embedded });
+    process.stdout.write(`M3-33 ${embedded ? "embedded" : "external"} Windows GUI passed: ${JSON.stringify(result)}\n`);
   } finally {
-    if (driver.exitCode === null) driver.kill();
+    if (child.exitCode === null && child.pid) {
+      if (embedded) {
+        // Terminate exactly the process tree this smoke started.
+        const cleaner = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"],
+          { stdio: "ignore", shell: false, windowsHide: true });
+        await new Promise(resolve => {
+          cleaner.once("error", resolve);
+          cleaner.once("exit", resolve);
+        });
+      } else {
+        child.kill();
+      }
+    }
   }
 }
 
