@@ -99,6 +99,24 @@ export async function runWindowsUiSmoke(base, application) {
     }
     throw new Error(`Expected safe UI marker absent: ${expected}`);
   };
+  // A disabled button alone does not prove the release binary blocks GPU:
+  // missing model or consent disables that button even on unsafe debug builds.
+  // Require a successful response from the actual Tauri IPC policy command.
+  const awaitNativeReleasePolicy = async () => {
+    const until = Date.now() + 12_000;
+    while (Date.now() < until) {
+      const text = await bodyText();
+      if (text.includes("로컬 GPU 실행 정책 확인됨: 배포판 비활성")) return;
+      if (text.includes("로컬 GPU 실행 정책 확인됨: 개발판 실행 가능")) {
+        throw new Error("Unexpected native GPU runner availability in release E2E");
+      }
+      if (text.includes("로컬 GPU 실행 정책 확인 실패")) {
+        throw new Error("Native GPU availability IPC failed; release policy not attested");
+      }
+      await sleep(200);
+    }
+    throw new Error("Native release GPU policy was never attested via IPC");
+  };
   const clickButton = async (selector, text) => {
     const deadline = Date.now() + 12_000;
     while (Date.now() < deadline) {
@@ -163,6 +181,7 @@ export async function runWindowsUiSmoke(base, application) {
     // The user never authorizes a GPU job here. Check the error/preflight path.
     await clickButton('nav[aria-label="작업 도구"] button', "이미지 생성");
     await waitText("입력 사전 검사");
+    await awaitNativeReleasePolicy();
     await clickButton("button", "입력 사전 검사");
     await waitText("유효한 Safetensors 체크포인트를 선택해야 합니다.");
 
@@ -200,6 +219,7 @@ export async function runWindowsUiSmoke(base, application) {
     // Navigation must not revive GPU consent, even without any model file.
     await clickButton('nav[aria-label="작업 도구"] button', "이미지 생성");
     await waitText("입력 사전 검사");
+    await awaitNativeReleasePolicy();
     await verifyReleaseSafety();
     return {
       navigation: "passed",
@@ -207,6 +227,7 @@ export async function runWindowsUiSmoke(base, application) {
       release_gpu_block: "passed",
       consent_unchecked_after_navigation: "passed",
       catalog_error_recovery: firstCatalog === "error" ? "passed" : "not_exercised",
+      native_release_policy: "attested_disabled",
     };
   } finally {
     try { await call("DELETE", "", undefined); } catch { /* never mask test verdict */ }
