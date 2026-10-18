@@ -41,6 +41,11 @@ jobs:
         run: ./scripts/windows-production-webdriver-absence.ps1 -Application $env:AIIMAGE_E2E_APP
       - name: Build GPU-disabled E2E-only Tauri executable, never an installer
         run: npm run tauri -- build --no-bundle --features e2e-webdriver --config src-tauri/tauri.e2e.conf.json
+      - name: Require incomplete runtime flags to keep embedded HTTP server closed
+        shell: pwsh
+        env:
+          AIIMAGE_E2E_APP: ${{ github.workspace }}\src-tauri\target\release\aiimage.exe
+        run: ./scripts/windows-embedded-runtime-gate.ps1 -Application $env:AIIMAGE_E2E_APP
       - name: Run real Windows embedded WebDriver UI checks without GPU consent
         shell: pwsh
         env:
