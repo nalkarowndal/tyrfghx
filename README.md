@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-16 (verified Windows process-group cleanup after local GPU jobs).**
+> **Current milestone: M3-17 (session-wide cleanup failure latch for all Windows GPU process routes).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,26 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Shared GPU safety lockout after unverified CUDA process cleanup (M3-17)
+
+The Tauri DEBUG-only runtime now remembers a failed Windows Job
+Object cleanup check **regardless of whether it occurred in image
+generation or in a read-only CUDA/VRAM diagnostic**. The shared
+fail-closed safety latch prevents new GPU diagnostics and new inference
+jobs until the application restarts, rather than treating a diagnostic
+cleanup failure as a transient read-only error.
+
+A failed CUDA probe's process-group termination is verified on normal
+exit, timeout, missing stdout, and process-status read errors. Even if
+later code reports a successful cleanup, it cannot clear an already-set
+fault within the same process. The user is asked to inspect remaining
+Python processes in Task Manager before restarting; no automatic retry
+or GPU memory-reset command is introduced.
+
+See [M3-17 shared cleanup fault latch](docs/M3_SHARED_CLEANUP_FAULT_LATCH.md).
+GitHub CI verifies synthetic logic and Windows process groups only,
+not CUDA memory reclamation on the actual RTX 2060 SUPER.
 
 ## Verify all Windows job processes are gone after GPU work (M3-16)
 

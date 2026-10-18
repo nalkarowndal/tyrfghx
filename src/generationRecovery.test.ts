@@ -47,6 +47,21 @@ describe("M3-14 safe GPU failure recovery messages", () => {
     expect(fallback).toContain("시작하지 않았습니다");
   });
 
+  it("prioritizes a persistent cleanup lockout over ordinary GPU failures", () => {
+    const text = explainGenerationStartError(
+      "이전 CUDA 진단의 Windows 프로세스 종료를 검증하지 못했습니다. 작업 관리자에서 프로세스를 확인하세요."
+    );
+    expect(text).toContain("추가 GPU 작업을 차단");
+    expect(text).toContain("다시 시작");
+    expect(text).not.toContain("512×512");
+    const protectedPath = String.raw`C:\Users\private\model.safetensors`;
+    const other = explainGenerationStartError(
+      `GPU 진단 종료 후 Windows 하위 프로세스 정리를 검증하지 못했습니다 ${protectedPath}`
+    );
+    expect(other).not.toContain(protectedPath);
+    expect(other).toContain("앱을 다시 시작");
+  });
+
   it("maps CUDA preflight and concurrency problems to non-executing guidance", () => {
     expect(explainGenerationStartError("GPU VRAM 4GiB 미만")).toContain("VRAM 재검사");
     expect(explainGenerationStartError("Another generation job is already running")).toContain("다른");

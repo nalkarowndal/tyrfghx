@@ -87,6 +87,13 @@ export function explainGenerationStartError(error: unknown): string {
   const value = typeof error === "string" ? error :
     error instanceof Error ? error.message : "";
   const normalized = value.toLowerCase();
+  // A failed Windows process-group drain is a session safety lockout,
+  // NOT a memory/preset warning and not a transient concurrent job.
+  if (normalized.includes("프로세스 종료를 검증하지 못") ||
+      normalized.includes("하위 프로세스 정리를 검증하지 못") ||
+      normalized.includes("작업 관리자에서 프로세스를 확인")) {
+    return "이전 GPU 생성 또는 CUDA 진단의 하위 프로세스 종료를 확인하지 못해 추가 GPU 작업을 차단했습니다. Windows 작업 관리자에서 남아 있는 프로세스를 확인한 후 앱을 다시 시작하세요.";
+  }
   if (normalized.includes("vram") || normalized.includes("메모리") ||
       normalized.includes("cuda 사전 검사")) {
     return "GPU 메모리 또는 CUDA 사전 검사로 실행하지 않았습니다. VRAM 재검사로 상태를 확인하고 512×512 권장 설정을 사용해 보세요.";
