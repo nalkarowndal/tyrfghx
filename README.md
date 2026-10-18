@@ -3,13 +3,25 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-33 (strictly test-only embedded Windows WebDriver runner).**
+> **Current milestone: M3-34 (verified embedded GUI and negative production WebDriver exposure QA).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-34: verified real GUI, prove production release has no test HTTP driver
+
+M3-33's actual hosted Windows embedded WebDriver GUI run **passed** (navigation,
+preflight, release GPU lockout, checked consent state); catalog failure retry
+was not exercised. M3-34 now builds the ordinary production-feature release
+executable **before** the test-only build and negatively probes a dedicated
+127.0.0.1 port while E2E environment variables are set. Any unexpected
+listener fails the opt-in Windows workflow. The test runner only accepts this
+checkout's release executable path. The normal production build does not
+include an embedded WebDriver plugin. See
+[M3-34 production isolation QA](docs/M3_PRODUCTION_WEBDRIVER_ISOLATION.md).
 
 ## M3-33: isolated embedded Windows GUI test path
 

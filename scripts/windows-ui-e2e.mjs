@@ -1,5 +1,5 @@
 /**
- * M3-26 opt-in REAL Windows Tauri release-UI smoke via tauri-driver WebDriver.
+ * M3-34 opt-in REAL Windows Tauri release-UI smoke (external or embedded WebDriver).
  * No downloaded models, model imports, GPU consent, screenshots or raw DOM logs.
  * A release binary deliberately disables GPU jobs. Run ONLY with --run.
  *
@@ -39,6 +39,15 @@ export async function allocateDriverPorts() {
   }
   if (port === nativePort) throw new Error("Unable to isolate both driver ports.");
   return { port, nativePort, url: `http://127.0.0.1:${port}` };
+}
+/**
+ * Never start an arbitrary executable from an environment-supplied filename.
+ * Both Windows E2E modes may launch only the release executable in this checkout.
+ */
+export function isExpectedReleaseApp(candidate, root = process.cwd()) {
+  if (typeof candidate !== "string" || !isAbsolute(candidate)) return false;
+  const expected = resolve(root, "src-tauri", "target", "release", "aiimage.exe");
+  return resolve(candidate).toLowerCase() === expected.toLowerCase();
 }
 const ELEM = "element-6066-11e4-a52e-4f735466cecf";
 const sleep = ms => new Promise(done => setTimeout(done, ms));
@@ -280,8 +289,8 @@ export async function main(args = process.argv.slice(2)) {
   if (process.platform !== "win32") throw new Error("M3-26 native GUI checks require Windows.");
   if (!args.includes("--run")) throw new Error("Explicit --run flag is required; no GUI launched.");
   const app = process.env.AIIMAGE_E2E_APP;
-  if (!app || !isAbsolute(app) || !app.toLowerCase().endsWith(".exe"))
-    throw new Error("AIIMAGE_E2E_APP must be an absolute .exe path to a release build.");
+  if (!isExpectedReleaseApp(app))
+    throw new Error("AIIMAGE_E2E_APP must point to the approved release executable in this checkout.");
   const path = resolve(app);
   await access(path);
   const embedded = args.includes("--embedded");
