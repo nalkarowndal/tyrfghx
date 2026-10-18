@@ -27,9 +27,22 @@ describe("M3-3 local generation permissions", () => {
         checkpointId: "checkpoints/a.safetensors",
         prompt: "forest", negativePrompt: "", width: 768, height: 768,
         steps: 20, guidance: 7, seed: 42, confirmed: true,
+        acknowledgeVramRisk: false,
       },
     });
   });
+  it("requires a separate explicit boolean for VRAM safety override", async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    vi.mocked(invoke).mockResolvedValue({ job_id: 2, phase: "running" });
+    await startLocalGeneration(settings, true, true);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("start_local_generation", {
+      request: expect.objectContaining({
+        confirmed: true, acknowledgeVramRisk: true,
+      }),
+    });
+    expect(JSON.stringify(vi.mocked(invoke).mock.calls)).not.toContain("python.exe");
+  });
+
   it("reads current status and cancels only a valid job identifier", async () => {
     vi.mocked(isTauri).mockReturnValue(true);
     vi.mocked(invoke).mockResolvedValue({ job_id: 7, phase: "cancelled", message: "stopped" });
