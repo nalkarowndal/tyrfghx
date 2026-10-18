@@ -2,6 +2,8 @@
 //! Matches M3-11 acceptance-CLI heuristics. No model load, network access or
 //! remote telemetry. Point-in-time readings never guarantee inference success.
 
+use serde::Serialize;
+
 const GIB: u64 = 1024 * 1024 * 1024;
 const MAX_VRAM: u64 = 256 * GIB;
 const MIN_TOTAL: u64 = 6 * GIB;
@@ -40,6 +42,47 @@ pub(crate) fn check_trial(
     )))
 }
 
+/// Read-only, time-sensitive memory check for the image-size selected in
+/// the desktop UI. This never authorizes a later generation: the launcher
+/// always performs another native device check immediately before execution.
+#[derive(Debug, Serialize)]
+pub(crate) struct TrialAssessment {
+    pub status: &'static str,
+    pub reasons: Vec<&'static str>,
+    pub total_vram_bytes: u64,
+    pub free_vram_bytes_at_check: u64,
+    pub requested_width: u32,
+    pub requested_height: u32,
+    pub suggested_width: u32,
+    pub suggested_height: u32,
+    pub suggested_steps: u32,
+}
+
+pub(crate) fn assess_trial(
+    total: u64, free: u64, width: u32, height: u32
+) -> Result<TrialAssessment, String> {
+    // Allow the hypothetical override solely to check physical bounds.
+    // Missing/bogus telemetry or invalid dimensions are still rejected.
+    check_trial(total, free, width, height, true)?;
+    let mut reasons = Vec::new();
+    if total < MIN_TOTAL { reasons.push("total_vram_under_6gib"); }
+    if free < MIN_FREE { reasons.push("free_vram_under_4gib"); }
+    if total <= 8 * GIB && u64::from(width) * u64::from(height) > MAX_LOW_VRAM_PIXELS {
+        reasons.push("high_resolution_on_8gib");
+    }
+    let status = if reasons.is_empty() { "trial_allowed" } else { "blocked_by_default" };
+    // Check against the launch policy rather than maintaining a separate
+    // acceptance calculation, so UI preview cannot silently drift.
+    debug_assert_eq!(check_trial(total, free, width, height, false).is_ok(),
+                     status == "trial_allowed");
+    Ok(TrialAssessment {
+        status, reasons,
+        total_vram_bytes: total, free_vram_bytes_at_check: free,
+        requested_width: width, requested_height: height,
+        suggested_width: 512, suggested_height: 512, suggested_steps: 15,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,6 +116,21 @@ mod tests {
             assert!(check_trial(total, free, 512, 512, false).is_err());
             assert!(check_trial(total, free, 512, 512, true).is_err());
         }
+    }
+
+    #[test]
+    fn UI_preflight_agrees_with_launch_thresholds_and_is_only_a_snapshot() {
+        let permitted = assess_trial(8 * GIB, 6 * GIB, 512, 512).unwrap();
+        assert_eq!(permitted.status, "trial_allowed");
+        assert!(permitted.reasons.is_empty());
+        let blocked = assess_trial(8 * GIB, 3 * GIB, 1024, 1024).unwrap();
+        assert_eq!(blocked.status, "blocked_by_default");
+        assert_eq!(blocked.reasons,
+                   vec!["free_vram_under_4gib", "high_resolution_on_8gib"]);
+        assert_eq!((blocked.suggested_width, blocked.suggested_steps), (512, 15));
+        let json = serde_json::to_string(&blocked).unwrap();
+        assert!(!json.contains("python.exe"));
+        assert!(assess_trial(8 * GIB, 9 * GIB, 512, 512).is_err());
     }
 
     #[test]
