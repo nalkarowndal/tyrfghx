@@ -43,6 +43,9 @@ pub struct JobSnapshot {
     pub elapsed_seconds: u64,
     pub time_limit_seconds: u64,
     pub result: Option<super::generation_result::VerifiedResult>,
+    /// Allowlisted failure label only. Never expose stderr, local paths or
+    /// raw model prompts in structured diagnostics.
+    pub failure_code: Option<&'static str>,
 }
 
 struct RunningJob {
@@ -213,6 +216,37 @@ fn outcome_message(ok: bool, stderr: &str, code: Option<i32>, cancelled: bool, t
     ("failed".into(), format!("CLI 종료 코드 {:?}. {reason}", code))
 }
 
+/// Derive a stable failure category from a bounded private stderr tail.
+/// The raw Python stderr is never sent to the webview or stored in snapshots.
+fn classify_terminal_failure(phase: &str, stderr: &str) -> Option<&'static str> {
+    match phase {
+        "succeeded" | "running" | "cancelling" | "idle" => None,
+        "cancelled" => Some("user_cancelled"),
+        "timed_out" => Some("execution_timeout"),
+        "failed" => {
+            let text = stderr.to_ascii_lowercase();
+            if text.contains("outofmemoryerror")
+                || text.contains("cuda out of memory")
+                || text.contains("cudnn_status_alloc_failed")
+            {
+                Some("cuda_out_of_memory")
+            } else if text.contains("modulenotfounderror")
+                || text.contains("no module named")
+                || text.contains("importerror:")
+            {
+                Some("python_dependency_missing")
+            } else if text.contains("cuda") || text.contains("cudnn")
+                || text.contains("nvidia driver")
+            {
+                Some("cuda_runtime_error")
+            } else {
+                Some("inference_failed")
+            }
+        }
+        _ => None,
+    }
+}
+
 #[tauri::command]
 pub fn local_generation_supported() -> bool {
     cfg!(all(windows, debug_assertions))
@@ -323,7 +357,7 @@ pub async fn start_local_generation(
         .stderr(Stdio::piped());
     super::windows_process_job::prepare_command(&mut command);
     let mut child = command.spawn()
-        .map_err(|e| format!("Could not start suspended Python interpreter: {e}"))?;
+        .map_err(|_| "고정된 Python 생성 실행기를 시작하지 못했습니다. 로컬 .venv 설치를 확인하세요.".to_string())?;
     let group = match super::windows_process_job::ProcessJob::attach_and_resume(&mut child) {
         Ok(group) => Arc::new(group),
         Err(error) => {
@@ -356,6 +390,7 @@ pub async fn start_local_generation(
         elapsed_seconds: 0,
         time_limit_seconds: MAX_JOB_RUNTIME.as_secs(),
         result: None,
+        failure_code: None,
     }));
     let process = Arc::new(Mutex::new(child));
     let cancelling = Arc::new(AtomicBool::new(false));
@@ -415,8 +450,10 @@ pub async fn start_local_generation(
             worker_cancelled.load(Ordering::SeqCst),
             timed_out,
         );
+        let mut failure_code = classify_terminal_failure(&phase, &stderr);
         if group_cleanup.is_err() && phase == "succeeded" {
             phase = "failed".into();
+            failure_code = Some("process_cleanup_failed");
             message = "Python은 종료됐으나 하위 프로세스 정리를 확인하지 못했습니다.".into();
         }
         let mut verified = None;
@@ -435,11 +472,13 @@ pub async fn start_local_generation(
                 }
                 Ok(_) => {
                     phase = "failed".into();
+                    failure_code = Some("image_verification_failed");
                     message = "생성 파일의 실제 해상도가 요청한 크기와 일치하지 않습니다.".into();
                 }
-                Err(problem) => {
+                Err(_problem) => {
                     phase = "failed".into();
-                    message = format!("생성 프로세스는 성공 종료했지만 결과 검증에 실패했습니다: {problem}");
+                    failure_code = Some("image_verification_failed");
+                    message = "생성 프로세스가 종료됐으나 결과 이미지 검증에 실패했습니다. 저장 공간과 모델 출력을 확인하세요.".into();
                 }
             }
         }
@@ -448,6 +487,7 @@ pub async fn start_local_generation(
             status.phase = phase;
             status.message = message;
             status.result = verified;
+            status.failure_code = failure_code;
         }
     });
     let reply = snapshot.lock().map_err(|_| "Job state lock error")?.clone();
@@ -463,6 +503,7 @@ pub async fn generation_job_status(state: State<'_, JobManager>) -> Result<JobSn
             job_id: 0, phase: "idle".into(), message: "대기 중".into(),
             elapsed_seconds: 0, time_limit_seconds: MAX_JOB_RUNTIME.as_secs(),
             result: None,
+            failure_code: None,
         });
     };
     job.snapshot.lock().map(|s| s.clone()).map_err(|_| "Job state lock error".into())
@@ -558,6 +599,22 @@ mod tests {
         let stored = consume_bounded_stdout(&mut reader).unwrap();
         assert_eq!(stored.len(), crate::generation_result::MAX_OUTPUT_JSON + 1);
         assert_eq!(reader.position() as usize, payload.len());
+    }
+
+    #[test] fn categorizes_failure_without_exposing_python_stderr() {
+        let secret = r#"CUDA out of memory loading C:\Users\private\secret.safetensors"#;
+        let kind = classify_terminal_failure("failed", secret);
+        assert_eq!(kind, Some("cuda_out_of_memory"));
+        assert!(!kind.unwrap().contains("private"));
+        assert_eq!(classify_terminal_failure("failed", "ModuleNotFoundError: torch"),
+                   Some("python_dependency_missing"));
+        assert_eq!(classify_terminal_failure("failed", "CUDA driver invalid"),
+                   Some("cuda_runtime_error"));
+        assert_eq!(classify_terminal_failure("failed", "unknown failure"),
+                   Some("inference_failed"));
+        assert_eq!(classify_terminal_failure("cancelled", secret), Some("user_cancelled"));
+        assert_eq!(classify_terminal_failure("timed_out", secret), Some("execution_timeout"));
+        assert_eq!(classify_terminal_failure("succeeded", secret), None);
     }
 
     #[test] fn runtime_limit_and_timeout_result() {
