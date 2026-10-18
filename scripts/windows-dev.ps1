@@ -120,7 +120,7 @@ $tauriCli = Join-Path $repo "node_modules\.bin\tauri.cmd"
 if (Test-Path -LiteralPath $tauriCli -PathType Leaf) {
     Add-Check "frontend_dependencies" "ready" "Local Tauri CLI exists in node_modules." $true
 } else {
-    Add-Check "frontend_dependencies" "missing" "Run npm ci explicitly from repository root first." $true
+    Add-Check "frontend_dependencies" "missing" "Run npm install explicitly from repository root first (no committed package-lock.json yet)." $true
 }
 
 # WebView2 and MSVC installation can vary across Windows installations.
