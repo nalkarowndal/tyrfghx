@@ -780,7 +780,7 @@ mod tests {
         assert!(state.reserve_diagnostic().is_ok());
         let fault = state.cleanup_fault_flag();
         fault.store(true, Ordering::SeqCst);
-        assert!(state.reserve_diagnostic().unwrap_err().contains("프로세스 종료"));
+        assert!(state.reserve_diagnostic().err().unwrap().contains("프로세스 종료"));
         // No UI restart button or request payload can clear this latch:
         assert!(fault.load(Ordering::SeqCst));
         let another_handle = state.cleanup_fault_flag();
