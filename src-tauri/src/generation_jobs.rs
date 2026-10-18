@@ -78,6 +78,9 @@ impl JobManager {
             if status.phase == "running" || status.phase == "cancelling" {
                 return Err("이미지 생성 중에는 CUDA 진단을 시작할 수 없습니다.".into());
             }
+            if status.failure_code == Some("process_cleanup_failed") {
+                return Err("이전 CUDA 작업의 Windows 하위 프로세스 정리를 확인하지 못했습니다. 작업 관리자에서 상태를 확인하고 앱을 다시 시작하기 전까지 GPU 작업을 차단합니다.".into());
+            }
         }
         self.diagnostic_active.compare_exchange(false, true,
             Ordering::SeqCst, Ordering::SeqCst)
@@ -730,6 +733,21 @@ mod tests {
         let (phase, message) = outcome_message(false, "CUDA out of memory", None, false, true);
         assert_eq!(phase, "timed_out");
         assert!(message.contains("30분"));
+    }
+
+    #[test] fn cleanup_failure_blocks_new_generation_and_gpu_probe() {
+        // Standalone phase guard policy mirrors JobManager reservation.
+        let code = Some("process_cleanup_failed");
+        let mut state = JobSnapshot {
+            job_id: 42, phase: "failed".into(), message: "cleanup".into(),
+            elapsed_seconds: 5, time_limit_seconds: 1800,
+            result: None, failure_code: code,
+        };
+        assert_eq!(state.failure_code, Some("process_cleanup_failed"));
+        let other = JobSnapshot { failure_code: None, ..state.clone() };
+        assert_ne!(other.failure_code, Some("process_cleanup_failed"));
+        state.phase = "cancelled".into();
+        assert_eq!(state.failure_code, Some("process_cleanup_failed"));
     }
 
     #[test] fn diagnostic_reservation_is_single_flight_and_releases_on_drop() {
