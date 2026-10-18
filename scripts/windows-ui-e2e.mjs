@@ -43,17 +43,36 @@ export async function allocateDriverPorts() {
 const ELEM = "element-6066-11e4-a52e-4f735466cecf";
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
-export async function requestWebDriver(base, method, route, body) {
-  const response = await fetch(base + route, {
-    method,
-    headers: { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(12_000),
-  });
-  const payload = await response.json();
+export async function requestWebDriver(base, method, route, body, timeoutMillis = 12_000) {
+  // Report only a safe request category; never print a path, session ID,
+  // browser stack, private prompt, returned DOM or full WebDriver payload.
+  const category = route === "/status" ? "status"
+    : route === "/session" ? "session"
+    : route.startsWith("/session/") ? "command" : "other";
+  let response;
+  try {
+    response = await fetch(base + route, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMillis),
+    });
+  } catch (error) {
+    const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
+    throw new Error(timedOut
+      ? `WebDriver ${category} request timed out after ${timeoutMillis}ms`
+      : `WebDriver ${category} connection failed`);
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error(`WebDriver ${category} returned malformed JSON`);
+  }
   if (!response.ok || payload?.value?.error) {
-    const code = payload?.value?.error ?? "webdriver_request_failed";
-    throw new Error(`WebDriver ${method} ${route}: ${String(code).slice(0, 80)}`);
+    const code = typeof payload?.value?.error === "string"
+      ? payload.value.error.slice(0, 64) : "protocol_error";
+    throw new Error(`WebDriver ${category} rejected request: ${code}`);
   }
   return payload.value;
 }
@@ -63,7 +82,7 @@ export async function waitForDriver(base, maxMillis = 30_000, driverFailed = () 
   while (Date.now() < deadline) {
     if (driverFailed()) throw new Error("Local Tauri WebDriver process exited before readiness.");
     try {
-      const status = await requestWebDriver(base, "GET", "/status");
+      const status = await requestWebDriver(base, "GET", "/status", undefined, 4_000);
       if (status?.ready !== false) return;
     } catch { /* expected before driver binds its local socket */ }
     await sleep(400);
@@ -72,9 +91,11 @@ export async function waitForDriver(base, maxMillis = 30_000, driverFailed = () 
 }
 
 export async function runWindowsUiSmoke(base, application) {
+  // Launching a native Windows WebView2 process often exceeds a typical
+  // fast DOM-command timeout; keep startup bounded but distinct from it.
   const session = await requestWebDriver(base, "POST", "/session", {
     capabilities: { alwaysMatch: { browserName: "wry", "tauri:options": { application } } },
-  });
+  }, 90_000);
   const sid = session?.sessionId;
   assert.match(sid ?? "", /^[a-zA-Z0-9-]{8,128}$/, "No valid native GUI session");
   const route = path => `/session/${sid}${path}`;
@@ -98,6 +119,24 @@ export async function runWindowsUiSmoke(base, application) {
       await sleep(200);
     }
     throw new Error(`Expected safe UI marker absent: ${expected}`);
+  };
+  // A disabled button alone does not prove the release binary blocks GPU:
+  // missing model or consent disables that button even on unsafe debug builds.
+  // Require a successful response from the actual Tauri IPC policy command.
+  const awaitNativeReleasePolicy = async () => {
+    const until = Date.now() + 12_000;
+    while (Date.now() < until) {
+      const text = await bodyText();
+      if (text.includes("로컬 GPU 실행 정책 확인됨: 배포판 비활성")) return;
+      if (text.includes("로컬 GPU 실행 정책 확인됨: 개발판 실행 가능")) {
+        throw new Error("Unexpected native GPU runner availability in release E2E");
+      }
+      if (text.includes("로컬 GPU 실행 정책 확인 실패")) {
+        throw new Error("Native GPU availability IPC failed; release policy not attested");
+      }
+      await sleep(200);
+    }
+    throw new Error("Native release GPU policy was never attested via IPC");
   };
   const clickButton = async (selector, text) => {
     const deadline = Date.now() + 12_000;
@@ -163,6 +202,7 @@ export async function runWindowsUiSmoke(base, application) {
     // The user never authorizes a GPU job here. Check the error/preflight path.
     await clickButton('nav[aria-label="작업 도구"] button', "이미지 생성");
     await waitText("입력 사전 검사");
+    await awaitNativeReleasePolicy();
     await clickButton("button", "입력 사전 검사");
     await waitText("유효한 Safetensors 체크포인트를 선택해야 합니다.");
 
@@ -200,6 +240,7 @@ export async function runWindowsUiSmoke(base, application) {
     // Navigation must not revive GPU consent, even without any model file.
     await clickButton('nav[aria-label="작업 도구"] button', "이미지 생성");
     await waitText("입력 사전 검사");
+    await awaitNativeReleasePolicy();
     await verifyReleaseSafety();
     return {
       navigation: "passed",
@@ -207,6 +248,7 @@ export async function runWindowsUiSmoke(base, application) {
       release_gpu_block: "passed",
       consent_unchecked_after_navigation: "passed",
       catalog_error_recovery: firstCatalog === "error" ? "passed" : "not_exercised",
+      native_release_policy: "attested_disabled",
     };
   } finally {
     try { await call("DELETE", "", undefined); } catch { /* never mask test verdict */ }

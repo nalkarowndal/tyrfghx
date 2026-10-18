@@ -10,7 +10,8 @@ const makeResponse = (reply, status = 200) => ({
 
 async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChecked = false,
   vramChecked = false, missingConsent = false,
-  catalogErrorOnce = false, staleCardOnError = false } = {}) {
+  catalogErrorOnce = false, staleCardOnError = false, nativePolicy = "disabled",
+  sessionDelayMillis = 0 } = {}) {
   let screen = "generation";
   let preflight = false;
   let closed = false;
@@ -25,6 +26,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
     let response;
     if (url === "/status") response = makeResponse({ ready: true });
     else if (url === "/session" && req.method === "POST") {
+      if (sessionDelayMillis > 0) await new Promise(done => setTimeout(done, sessionDelayMillis));
       assert.equal(payload.capabilities.alwaysMatch["tauri:options"].application, "C:\\fake\\aiimage.exe");
       assert.equal(payload.capabilities.alwaysMatch.browserName, "wry");
       response = makeResponse({ sessionId: "a1234567", capabilities: {} });
@@ -49,6 +51,15 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
         };
         let body = "aiimage ";
         body += screen === "models" ? "로컬 모델 관리 데스크톱 모델 가져오기" : "이미지 생성 입력 사전 검사";
+        if (screen === "generation") {
+          body += nativePolicy === "disabled"
+            ? " 로컬 GPU 실행 정책 확인됨: 배포판 비활성"
+            : nativePolicy === "enabled"
+              ? " 로컬 GPU 실행 정책 확인됨: 개발판 실행 가능"
+              : nativePolicy === "error"
+                ? " 로컬 GPU 실행 정책 확인 실패: 실행 차단"
+                : " 로컬 GPU 실행 정책: 네이티브 명령 확인 중";
+        }
         if (screen === "models") {
           body += catalogErrorOnce && modelRefreshCount === 1
             ? " 모델 목록 오류: 다시 확인하세요."
@@ -94,6 +105,7 @@ test("M3-26 protocol: actual model-navigation and safe preflight command order",
       navigation: "passed", missing_checkpoint_preflight: "passed", release_gpu_block: "passed",
       consent_unchecked_after_navigation: "passed",
       catalog_error_recovery: "not_exercised",
+      native_release_policy: "attested_disabled",
     });
     assert.equal(server.closed, true, "session must always close");
     assert.equal(server.refreshCount, 1, "catalog refresh must be exercised exactly once");
@@ -191,4 +203,49 @@ test("M3-30: refuse to retry a failed catalog that still exposes stale cards", a
 test("M3-30: stop promptly if spawned native driver has already failed", async () => {
   await assert.rejects(waitForDriver("http://127.0.0.1:65533", 250, () => true),
     /Local Tauri WebDriver process exited before readiness/);
+});
+
+test("M3-31 real E2E fails closed if a debug-capable native runner is reported", async () => {
+  const server = await fakeDriver({ nativePolicy: "enabled" });
+  try {
+    await assert.rejects(
+      runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe"),
+      /Unexpected native GPU runner availability/,
+    );
+    assert.equal(server.closed, true);
+  } finally { await server.close(); }
+});
+
+test("M3-31 real E2E cannot claim release mode if native policy IPC rejects", async () => {
+  const server = await fakeDriver({ nativePolicy: "error" });
+  try {
+    await assert.rejects(
+      runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe"),
+      /Native GPU availability IPC failed/,
+    );
+    assert.equal(server.closed, true);
+  } finally { await server.close(); }
+});
+
+test("M3-31 logs only safe WebDriver stage and timeout, not application path", async () => {
+  const server = await fakeDriver({ sessionDelayMillis: 45 });
+  try {
+    await assert.rejects(
+      requestWebDriver(server.url, "POST", "/session", {
+        capabilities: { alwaysMatch: { browserName: "wry", "tauri:options": { application: "C:\\fake\\aiimage.exe" } } },
+      }, 5),
+      error => error.message.includes("WebDriver session request timed out after 5ms")
+        && !error.message.includes("C:")
+        && !error.message.includes("sessionId"),
+    );
+  } finally { await server.close(); }
+});
+
+test("M3-31 allows bounded native GUI session startup longer than ordinary DOM commands", async () => {
+  const server = await fakeDriver({ sessionDelayMillis: 40 });
+  try {
+    const checks = await runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe");
+    assert.equal(checks.native_release_policy, "attested_disabled");
+    assert.equal(server.closed, true);
+  } finally { await server.close(); }
 });
