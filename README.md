@@ -3,13 +3,24 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-26 (opt-in Windows release UI WebDriver smoke and protocol regression tests).**
+> **Current milestone: M3-27 (fail-closed model catalog recovery and privacy-safe manual retry).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-27: fail-closed model catalog loading and retry
+
+When model listing fails or a refresh begins, the UI clears its previous
+checkpoint list rather than allowing stale models to remain selectable.
+Superseded native IPC results are ignored, malformed payloads are rejected
+and raw filesystem errors are not shown. The user can explicitly retry with
+**목록 새로고침** after restoring the Python server or model directory.
+See [M3-27 model catalog recovery](docs/M3_MODEL_CATALOG_RECOVERY.md).
+Only synthetic/protocol CI is automated; actual Windows GUI and GPU
+acceptance remain separate.
 
 ## M3-26: optional real Windows UI navigation E2E
 
