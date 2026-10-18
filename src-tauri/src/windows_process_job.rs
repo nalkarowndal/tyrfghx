@@ -27,7 +27,7 @@ mod platform {
                 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
             },
             Threading::{
-                OpenThread, ResumeThread, CREATE_SUSPENDED, THREAD_SUSPEND_RESUME,
+                OpenThread, ResumeThread, CREATE_SUSPENDED, CREATE_NO_WINDOW, THREAD_SUSPEND_RESUME,
             },
         },
     };
@@ -51,6 +51,10 @@ mod platform {
 
     pub fn prepare_command(command: &mut Command) {
         command.creation_flags(CREATE_SUSPENDED);
+    }
+
+    pub fn prepare_hidden_command(command: &mut Command) {
+        command.creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW);
     }
 
     fn resume_primary_thread(pid: u32) -> Result<(), String> {
@@ -233,6 +237,7 @@ mod platform {
     use std::process::{Child, Command};
     pub struct ProcessJob;
     pub fn prepare_command(_: &mut Command) {}
+    pub fn prepare_hidden_command(_: &mut Command) {}
     impl ProcessJob {
         pub fn attach_and_resume(_: &mut Child) -> Result<Self, String> {
             Err("Windows Job Objects are unavailable on this platform".into())
@@ -246,4 +251,4 @@ mod platform {
     }
 }
 
-pub use platform::{prepare_command, ProcessJob};
+pub use platform::{prepare_command, prepare_hidden_command, ProcessJob};

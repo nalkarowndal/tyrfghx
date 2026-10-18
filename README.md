@@ -591,3 +591,9 @@ M10 is reserved for a Krea-inspired canvas/editor workflow, **not** multi-charac
 generation. ComfyUI remains an optional future engine adapter.
 
 - [M3-8 generation metrics, checksum and Windows debug limitations](docs/M3_VERIFIED_GENERATION_METRICS.md)
+# M3-39 backend packaging
+
+The opt-in Windows backend bundle adds authenticated loopback FastAPI startup,
+shutdown/restart supervision and installed GUI/data-preservation QA. It preserves
+the existing native catalog and GPU consent/release policy. It does **not** bundle
+CUDA, Diffusers or model weights. See [design, build instructions and verified QA](docs/M3_WINDOWS_BACKEND_BUNDLE.md).

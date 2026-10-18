@@ -13,3 +13,5 @@ outputs/
 *.ckpt
 *.pt
 *.pth
+/.backend-build/
+/src-tauri/backend-dist/
