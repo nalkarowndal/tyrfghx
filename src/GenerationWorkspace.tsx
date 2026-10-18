@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { hasCurrentCatalogConsent } from "./catalogConsent";
+import { generationPolicyMessage, type GenerationPolicyState } from "./generationSupportPolicy";
 import GpuDiagnosticsPanel from "./GpuDiagnosticsPanel";
 import GenerationGalleryInspector from "./GenerationGalleryInspector";
 import { describeGenerationFailure, explainGenerationStartError } from "./generationRecovery";
@@ -26,8 +27,9 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   const [jobLoading, setJobLoading] = useState(false);
   const [jobError, setJobError] = useState("");
   const [jobStatusLoaded, setJobStatusLoaded] = useState(false);
-  const [runnerSupported, setRunnerSupported] = useState(false);
+  const [nativeGenerationPolicy, setNativeGenerationPolicy] = useState<GenerationPolicyState>("checking");
   const desktop = isTauri();
+  const runnerSupported = nativeGenerationPolicy === "enabled";
   const eligibleModels = useMemo(() => models.filter(x => x.category === "checkpoint"), [models]);
   const assessment = preflightImageSettings(settings, models);
   const catalogConsentCurrent =
@@ -64,9 +66,17 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   useEffect(() => {
     if (!desktop) return;
     let active = true;
+    setNativeGenerationPolicy("checking");
     isLocalGenerationSupported()
-      .then(value => { if (active) setRunnerSupported(value); })
-      .catch(reason => { if (active) setJobError(String(reason)); });
+      .then(value => {
+        if (active) setNativeGenerationPolicy(value === true ? "enabled" : "disabled");
+      })
+      .catch(() => {
+        if (active) {
+          setNativeGenerationPolicy("error");
+          setJobError("로컬 생성 실행 정책을 확인하지 못했습니다. GPU 실행을 차단했습니다.");
+        }
+      });
     getGenerationJobStatus()
       .then(value => { if (active) setJob(value); })
       .catch(reason => { if (active) setJobError(String(reason)); })
@@ -139,6 +149,9 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
     <section className="generation-panel" aria-label="이미지 생성 설정">
       <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-21 · 이미지 상세 검수</span></div>
       <p className="muted">Windows Tauri 개발판에서는 명시적으로 승인한 한 건의 로컬 SDXL 추론을 시작하거나 중지할 수 있습니다. 배포판과 웹 브라우저에서는 비활성화됩니다.</p>
+      <p className="muted" role="status" aria-label="로컬 GPU 실행 정책">
+        {generationPolicyMessage(desktop ? nativeGenerationPolicy : "browser")}
+      </p>
       <GpuDiagnosticsPanel supported={runnerSupported} busy={jobBusy || jobLoading} />
       <VramPreflightPanel
         key={settings.width + "x" + settings.height}
