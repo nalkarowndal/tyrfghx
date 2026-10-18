@@ -3,13 +3,24 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-31 (native release GPU-policy attestation and real Windows GUI timeout diagnosis).**
+> **Current milestone: M3-32 (native Windows release launch probe and WebDriver session diagnostics).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-32: distinguish Windows native app startup from WebDriver attachment
+
+The second opted-in Windows GUI check successfully built the release app and
+installed the Edge driver but failed at **WebDriver session not created**.
+An isolated, GPU-disabled release process startup probe now runs before the
+WebDriver click-through and records whether the process exited or a main
+window handle was observed. WebDriver protocol errors use safe allowlisted
+categories. This does not prove real GUI acceptance until the opt-in run
+actually passes. See
+[M3-32 native Windows session diagnostics](docs/M3_NATIVE_WINDOWS_SESSION_DIAGNOSTICS.md).
 
 ## M3-31: real Windows GUI test feedback and native release GPU attestation
 
