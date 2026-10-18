@@ -43,6 +43,26 @@ export async function allocateDriverPorts() {
 const ELEM = "element-6066-11e4-a52e-4f735466cecf";
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
+// WebDriver protocol error codes are a fixed vocabulary. Never include
+// arbitrary server-supplied strings (which may contain private file paths).
+const WEB_DRIVER_CODES = new Set([
+  "session not created", "unknown command", "unknown error",
+  "invalid argument", "invalid session id", "no such element",
+  "element not interactable", "stale element reference",
+  "timeout", "script timeout", "unsupported operation",
+  "session not found",
+]);
+export function safeWebDriverErrorCode(code) {
+  return typeof code === "string" && WEB_DRIVER_CODES.has(code)
+    ? code : "protocol_error";
+}
+export function describeNativeSessionProblem(code) {
+  if (code === "session not created") {
+    return "native_session_not_created: inspect isolated release startup probe and WebView2 attach";
+  }
+  return `webdriver_${safeWebDriverErrorCode(code).replaceAll(" ", "_")}`;
+}
+
 export async function requestWebDriver(base, method, route, body, timeoutMillis = 12_000) {
   // Report only a safe request category; never print a path, session ID,
   // browser stack, private prompt, returned DOM or full WebDriver payload.
@@ -70,9 +90,10 @@ export async function requestWebDriver(base, method, route, body, timeoutMillis 
     throw new Error(`WebDriver ${category} returned malformed JSON`);
   }
   if (!response.ok || payload?.value?.error) {
-    const code = typeof payload?.value?.error === "string"
-      ? payload.value.error.slice(0, 64) : "protocol_error";
-    throw new Error(`WebDriver ${category} rejected request: ${code}`);
+    const code = safeWebDriverErrorCode(payload?.value?.error);
+    throw new Error(category === "session" && code === "session not created"
+      ? "WebDriver session rejected: " + describeNativeSessionProblem(code)
+      : `WebDriver ${category} rejected request: ${code}`);
   }
   return payload.value;
 }
@@ -284,7 +305,7 @@ export async function main(args = process.argv.slice(2)) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   main().catch(error => {
     // No source paths, prompts or user files are ever printed.
-    console.error("M3-26 Windows native UI smoke failed:", error?.message?.slice(0, 200));
+    console.error("M3-32 Windows native UI smoke failed:", error?.message?.slice(0, 200));
     process.exitCode = 1;
   });
 }
