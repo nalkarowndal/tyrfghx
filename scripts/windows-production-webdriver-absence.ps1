@@ -1,11 +1,15 @@
 # M3-34 negative-security proof: production release must not expose WebDriver,
 # even if automation-like environment variables are supplied.
 # Only checks a disposable GitHub runner build; no model/GPU/UI clicks or uploads.
-param([Parameter(Mandatory = $true)][string]$Application)
+param(
+  [Parameter(Mandatory = $true)][string]$Application,
+  [switch]$ValidateOnly
+)
 $ErrorActionPreference = "Stop"
 $expected = [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path "src-tauri/target/release/aiimage.exe"))
 $given = [System.IO.Path]::GetFullPath($Application)
 if ($given -ine $expected) { throw "production_webdriver_absence: unapproved_executable" }
+if ($ValidateOnly) { Write-Output "production_webdriver_absence: expected_path_valid"; return }
 if (-not (Test-Path -LiteralPath $given -PathType Leaf)) { throw "production_webdriver_absence: binary_missing" }
 
 # The TCP port is allocated on loopback, released, then probed; in rare cases
