@@ -32,7 +32,7 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true } = {}) {
       else if (payload.value === "button") ids = ["refresh", "preflight", "gpu"];
       response = makeResponse(ids.map(id => ({ [ELEMENT]: id })));
     } else if (url.startsWith("/session/a1234567/element/")) {
-      const [, id, operation] = url.slice("/session/a1234567/element/".length).split("/");
+      const [id, operation] = url.slice("/session/a1234567/element/".length).split("/");
       if (operation === "text") {
         const names = {
           "nav-model": "모델 관리", "nav-image": "이미지 생성", refresh: "목록 새로고침",
