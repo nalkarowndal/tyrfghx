@@ -3,13 +3,23 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-23 (locked/audited Node dependencies; Vitest 5 and reproducible npm CI).**
+> **Current milestone: M3-24 (opt-in native model SHA-256 recheck).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-24: explicitly recheck a model's SHA-256 from the desktop
+
+The Tauri **모델 관리** page now has a per-file **현재 파일 SHA-256 검증**
+button for local safetensors models. Rust reads only a pre-registered model in
+the fixed model directory, streams SHA-256 under a 64 GiB limit, compares to
+the import-time registry and displays match, mismatch or not-recorded.
+The check is explicit, read-only, limited to one button at a time in the UI
+and **not** a signed authenticity guarantee. No model weights are loaded and
+no GPU job is run. See [M3-24 native integrity recheck](docs/M3_NATIVE_MODEL_INTEGRITY.md).
 
 ## What works in the codebase
 

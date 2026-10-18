@@ -6,6 +6,22 @@ export async function getNativeModels(): Promise<ModelRecord[]> {
   return invoke<ModelRecord[]>("list_local_models");
 }
 
+export type ModelHashCheckStatus = "match" | "mismatch" | "not_recorded";
+export type NativeModelHashCheck = { status: ModelHashCheckStatus };
+
+/** Explicit user-initiated local rehash: reads only a fixed-root registered model. */
+export async function verifyNativeModelHash(modelId: string): Promise<NativeModelHashCheck> {
+  if (!isTauri()) throw new Error("Tauri 데스크톱에서만 검증할 수 있습니다.");
+  if (modelId.length > 512 || !/^(checkpoints|loras|vae)\/[^\\/:]+\.safetensors$/i.test(modelId)) {
+    throw new Error("모델 식별자가 올바르지 않습니다.");
+  }
+  const result = await invoke<NativeModelHashCheck>("verify_local_model_hash", { modelId });
+  if (!result || !["match", "mismatch", "not_recorded"].includes(result.status)) {
+    throw new Error("검증 결과 형식이 올바르지 않습니다.");
+  }
+  return result;
+}
+
 /**
  * Desktop-only *metadata hint*: it is NOT a GPU load or LoRA tensor compatibility test.
  * Mirrors the local Python read-only preflight classifications.

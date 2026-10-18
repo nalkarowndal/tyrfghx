@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getCompatibility, type CompatibilityReport, type ModelRecord } from "./api";
 import { isTauri } from "@tauri-apps/api/core";
 import { importModelFromNativeDialog, type ImportCategory } from "./nativeModelImport";
-import { compareNativeModels } from "./nativeModelCatalog";
+import { compareNativeModels, verifyNativeModelHash, type ModelHashCheckStatus } from "./nativeModelCatalog";
 
 const categories: Record<ModelRecord["category"], string> = {
   checkpoint: "체크포인트", lora: "LoRA", vae: "VAE",
@@ -28,7 +28,37 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
   const [importBusy, setImportBusy] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [importError, setImportError] = useState("");
+  const [hashBusy, setHashBusy] = useState<string | null>(null);
+  const [hashResults, setHashResults] = useState<Record<string, ModelHashCheckStatus>>({});
+  const [hashError, setHashError] = useState<string | null>(null);
   const desktopApp = isTauri();
+
+  // A refreshed catalog must never display an old checksum match as current.
+  useEffect(() => {
+    setHashResults({});
+    setHashError(null);
+  }, [items]);
+
+  async function recheckHash(modelId: string) {
+    if (!desktopApp || hashBusy !== null) return;
+    setHashBusy(modelId);
+    setHashError(null);
+    setHashResults(previous => {
+      const next = { ...previous };
+      delete next[modelId];
+      return next;
+    });
+    try {
+      const report = await verifyNativeModelHash(modelId);
+      setHashResults(previous => ({ ...previous, [modelId]: report.status }));
+    } catch {
+      // Never render raw native filesystem errors or local paths in the UI.
+      setHashError(modelId);
+    } finally {
+      setHashBusy(null);
+    }
+  }
+
 
   async function importModel() {
     if (importBusy || !desktopApp) return;
@@ -84,7 +114,7 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
         <h2>로컬 모델 관리</h2>
         <p className="muted">모델 파일, 수동 등록 정보, 계열 일치 가능성을 확인합니다. 실제 생성 여부는 검증하지 않습니다.</p>
       </div>
-      <button type="button" className="refresh-button" onClick={() => { setReport(null); onRefresh(); }} disabled={isLoading}>
+      <button type="button" className="refresh-button" onClick={() => { setReport(null); setHashResults({}); setHashError(null); onRefresh(); }} disabled={isLoading || hashBusy !== null}>
         {isLoading ? "검색 중..." : "목록 새로고침"}
       </button>
     </div>
@@ -156,6 +186,24 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
         {model.recorded_sha256 && <p className="muted" title={model.recorded_sha256}>
           등록 시 SHA-256: <code>{model.recorded_sha256}</code>
         </p>}
+        {desktopApp && model.file_format === "safetensors" && <div className="model-hash-check">
+          <button type="button" className="refresh-button"
+            disabled={hashBusy !== null || isLoading}
+            onClick={() => recheckHash(model.id)}
+            aria-label={`SHA-256 현재 파일 재검증: ${model.name}`}>
+            {hashBusy === model.id ? "SHA-256 검사 중..." : "현재 파일 SHA-256 검증"}
+          </button>
+          {hashResults[model.id] && <p role="status" className={hashResults[model.id] === "mismatch" ? "model-error" : "muted"}>
+            {hashResults[model.id] === "match"
+              ? "등록 당시 기록과 현재 SHA-256이 일치합니다 (검사 시점 기준)."
+              : hashResults[model.id] === "mismatch"
+                ? "주의: 기록된 SHA-256과 현재 파일이 다릅니다. 해당 모델을 사용하지 마세요."
+                : "등록된 SHA-256이 없습니다. 원본 출처와 체크섬을 별도로 확인하세요."}
+          </p>}
+          {hashError === model.id && <p role="alert" className="model-error">
+            SHA-256 검사에 실패했습니다. 파일 또는 무결성 기록을 확인하세요.
+          </p>}
+        </div>}
         {model.potential_duplicate_ids.length > 0 && <p className="muted">
           중복 가능 파일: {model.potential_duplicate_ids.join(", ")} (등록 당시 기록 기준)
         </p>}
