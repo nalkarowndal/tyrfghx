@@ -116,11 +116,18 @@ if ((Test-Path -LiteralPath $package -PathType Leaf) -and
     Add-Check "repository" "missing" "Run from an intact aiimage repository checkout." $true
 }
 
+$lockfile = Join-Path $repo "package-lock.json"
+if (Test-Path -LiteralPath $lockfile -PathType Leaf) {
+    Add-Check "npm_lockfile" "ready" "Committed npm dependency lockfile present; npm ci installs exact dependency versions." $true
+} else {
+    Add-Check "npm_lockfile" "missing" "package-lock.json is required for reproducible npm ci installs." $true
+}
+
 $tauriCli = Join-Path $repo "node_modules\.bin\tauri.cmd"
 if (Test-Path -LiteralPath $tauriCli -PathType Leaf) {
     Add-Check "frontend_dependencies" "ready" "Local Tauri CLI exists in node_modules." $true
 } else {
-    Add-Check "frontend_dependencies" "missing" "Run npm install explicitly from repository root first (no committed package-lock.json yet)." $true
+    Add-Check "frontend_dependencies" "missing" "Run npm ci explicitly from the repository root after checking package-lock.json." $true
 }
 
 # WebView2 and MSVC installation can vary across Windows installations.
