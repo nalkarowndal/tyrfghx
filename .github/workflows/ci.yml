@@ -66,5 +66,7 @@ jobs:
         run: ./scripts/windows-embedded-runtime-gate.ps1 -Application (Join-Path $PWD.Path "src-tauri/target/release/aiimage.exe") -ValidateOnly
       - name: Verify Rust toolchain
         run: rustc --version
+      - name: Validate committed Rust dependency graph without changing Cargo.lock
+        run: cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --locked --features e2e-webdriver --no-deps
       - name: Build and test native import/catalog/hash/generation flows
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
