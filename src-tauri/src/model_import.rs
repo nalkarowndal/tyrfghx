@@ -222,4 +222,82 @@ mod tests {
         example_file(&source);
         assert!(import_selected_file(&source, "../other", &tmp.path().join("models")).is_err());
     }
+    /// Cross-module synthetic smoke test: this is real local disk I/O, but no
+    /// model loading, GPU access, file picker, Windows GUI or network.
+    #[test]
+    fn m3_25_import_catalog_rehash_and_same_size_tamper() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("sdxl-model.safetensors");
+        let root = temp.path().join("models");
+        example_file(&source);
+        let source_original = fs::read(&source).unwrap();
+        let imported = import_selected_file(&source, "checkpoints", &root).unwrap();
+        assert_eq!(imported.model_id, "checkpoints/sdxl-model.safetensors");
+        assert_eq!(fs::read(&source).unwrap(), source_original);
+
+        let catalog = crate::model_catalog::scan_native_models(&root).unwrap();
+        assert_eq!(catalog.len(), 1);
+        let item = &catalog[0];
+        assert_eq!(item.id, imported.model_id);
+        assert_eq!(item.category, "checkpoint");
+        assert_eq!(item.validation, "metadata_only");
+        let fields = serde_json::to_value(item).unwrap();
+        assert_eq!(fields["integrity_state"], "snapshot_unchanged");
+        assert_eq!(fields["recorded_sha256"], imported.sha256);
+
+        let verdict = crate::model_integrity::verify_at_root(&root, &imported.model_id).unwrap();
+        assert_eq!(verdict.status, "match");
+
+        // Same-size changes can evade size-only checks. Explicit rehash cannot.
+        let destination = root.join(&imported.model_id);
+        let mut modified = fs::read(&destination).unwrap();
+        *modified.last_mut().unwrap() ^= 0x01;
+        fs::write(&destination, &modified).unwrap();
+        assert_eq!(
+            crate::model_integrity::verify_at_root(&root, &imported.model_id).unwrap().status,
+            "mismatch"
+        );
+        assert_eq!(fs::read(&source).unwrap(), source_original);
+        assert!(import_selected_file(&source, "checkpoints", &root).is_err());
+        assert_eq!(fs::read(&destination).unwrap(), modified);
+    }
+
+    #[test]
+    fn m3_25_catalog_registration_and_duplicate_hints_without_hashing_unknown_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("models");
+        let first = temp.path().join("first.safetensors");
+        let second = temp.path().join("second.safetensors");
+        example_file(&first);
+        example_file(&second); // Same bytes but different model ID.
+        let checkpoint = import_selected_file(&first, "checkpoints", &root).unwrap();
+        let lora = import_selected_file(&second, "loras", &root).unwrap();
+        assert_eq!(checkpoint.sha256, lora.sha256);
+
+        let vae_folder = root.join("vae");
+        fs::create_dir(&vae_folder).unwrap();
+        example_file(&vae_folder.join("manually-added.safetensors"));
+        let catalog = crate::model_catalog::scan_native_models(&root).unwrap();
+        assert_eq!(catalog.len(), 3);
+        let a = catalog.iter().find(|item| item.id == checkpoint.model_id).unwrap();
+        let b = catalog.iter().find(|item| item.id == lora.model_id).unwrap();
+        let a_json = serde_json::to_value(a).unwrap();
+        let b_json = serde_json::to_value(b).unwrap();
+        assert_eq!(a_json["potential_duplicate_ids"][0], lora.model_id);
+        assert_eq!(b_json["potential_duplicate_ids"][0], checkpoint.model_id);
+
+        let unregistered = "vae/manually-added.safetensors";
+        assert!(catalog.iter().any(|item| item.id == unregistered));
+        assert_eq!(
+            crate::model_integrity::verify_at_root(&root, unregistered).unwrap().status,
+            "not_recorded"
+        );
+        // A legacy file may appear in the catalog but must not be imported
+        // or considered a verified safetensors model.
+        let legacy = temp.path().join("legacy.ckpt");
+        fs::write(&legacy, b"unsafe legacy format").unwrap();
+        assert!(import_selected_file(&legacy, "checkpoints", &root).is_err());
+        assert!(crate::model_integrity::verify_at_root(&root, "checkpoints/legacy.ckpt").is_err());
+    }
+
 }
