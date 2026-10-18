@@ -74,20 +74,21 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
         setImportMessage("파일 선택을 취소했습니다. 변경사항이 없습니다.");
       }
     } catch (reason) {
-      setImportError(String(reason));
+      setImportError("선택한 파일을 가져오지 못했습니다. 모델 형식, 파일 권한, 중복 이름을 확인한 뒤 다시 시도하세요.");
     } finally {
       setImportBusy(false);
     }
   }
 
-  const visible = useMemo(() => items.filter(item => {
+  const availableItems = error || isLoading ? [] : items;
+  const visible = useMemo(() => availableItems.filter(item => {
     const matchCategory = category === "all" || item.category === category;
     const matchText = [item.name, item.display_name, item.reported_architecture, item.family, item.notes]
       .some(part => part?.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
     return matchCategory && matchText;
-  }), [items, category, search]);
-  const checkpoints = items.filter(item => item.category === "checkpoint");
-  const loras = items.filter(item => item.category === "lora");
+  }), [availableItems, category, search]);
+  const checkpoints = availableItems.filter(item => item.category === "checkpoint");
+  const loras = availableItems.filter(item => item.category === "lora");
   const readyToCheck = checkpoints.some(item => item.id === checkpointId)
     && loras.some(item => item.id === loraId);
 
@@ -98,11 +99,11 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
     setReport(null);
     try {
       const result = desktopApp
-        ? compareNativeModels(items, checkpointId, loraId)
+        ? compareNativeModels(availableItems, checkpointId, loraId)
         : await getCompatibility(checkpointId, loraId);
       setReport(result);
     } catch (reason) {
-      setCompareError(String(reason));
+      setCompareError("계열 비교를 완료하지 못했습니다. 연결 상태를 확인하고 다시 시도하세요.");
     } finally {
       setComparing(false);
     }
@@ -161,7 +162,8 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
       </label>
     </div>
     {isLoading ? <p className="muted" role="status">로컬 모델 파일을 확인하는 중입니다.</p>
-      : !error && visible.length === 0 ? <p className="empty-models">표시할 모델이 없습니다. 검색 조건 또는 파일 위치를 확인해 주세요.</p>
+      : error ? null
+      : visible.length === 0 ? <p className="empty-models">표시할 모델이 없습니다. 검색 조건 또는 파일 위치를 확인해 주세요.</p>
       : <div className="model-list">{visible.map(model => <article className="model-item" key={model.id}>
         <div className="model-title">
           <strong title={model.name}>{model.display_name || model.name}</strong>
