@@ -7,8 +7,10 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
-import { isAbsolute, resolve, dirname } from "node:path";
+import { access, writeFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { isAbsolute, resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
 
@@ -120,7 +122,7 @@ export async function waitForDriver(base, maxMillis = 30_000, driverFailed = () 
   throw new Error("Local WebDriver did not become ready.");
 }
 
-export async function runWindowsUiSmoke(base, application, { embedded = false } = {}) {
+export async function runWindowsUiSmoke(base, application, { embedded = false, catalogFaultMarker = null } = {}) {
   // Launching a native Windows WebView2 process often exceeds a typical
   // fast DOM-command timeout; keep startup bounded but distinct from it.
   const session = await requestWebDriver(base, "POST", "/session", {
@@ -191,6 +193,14 @@ export async function runWindowsUiSmoke(base, application, { embedded = false } 
     await clickButton('nav[aria-label="작업 도구"] button', "모델 관리");
     await waitText("로컬 모델 관리");
     await waitText("데스크톱 모델 가져오기");
+    if (catalogFaultMarker !== null) {
+      assert.equal(embedded, true, "Synthetic catalog fault requires embedded E2E");
+      // Wait for the initial catalog request to settle before arming the fault.
+      // The hosted disposable Windows runner intentionally has no model files.
+      await waitText("표시할 모델이 없습니다.");
+      // Exactly one disposable marker created AFTER app startup, no model changes.
+      await writeFile(catalogFaultMarker, "aiimage-e2e-fail-once\n", { flag: "wx", mode: 0o600 });
+    }
     await clickButton("button", "목록 새로고침");
 
     // Exercise catalog failure recovery if a safe error appears naturally.
@@ -213,6 +223,10 @@ export async function runWindowsUiSmoke(base, application, { embedded = false } 
       throw new Error("Catalog never reached a loaded or safe failure state.");
     };
     const firstCatalog = await awaitCatalog();
+    if (catalogFaultMarker !== null) {
+      assert.equal(firstCatalog, "error",
+        "Test-only native fault must produce actual model catalog error");
+    }
     if (firstCatalog === "error") {
       assert.equal((await elements(".model-item")).length, 0,
         "Failed catalog must not render cached model cards");
@@ -294,6 +308,11 @@ export async function main(args = process.argv.slice(2)) {
   const path = resolve(app);
   await access(path);
   const embedded = args.includes("--embedded");
+  const injectCatalogFault = args.includes("--catalog-fault-once");
+  if (injectCatalogFault && !embedded)
+    throw new Error("Catalog fault E2E is available only for embedded test-only builds.");
+  const catalogFaultMarker = injectCatalogFault
+    ? join(tmpdir(), `aiimage-e2e-catalog-${randomUUID()}.sentinel`) : null;
   const { port, nativePort, url } = await allocateDriverPorts();
   const driverBinary = process.env.AIIMAGE_TAURI_DRIVER || "tauri-driver";
   // Embedded mode starts ONLY this validated release app, with feature-gated
@@ -305,6 +324,7 @@ export async function main(args = process.argv.slice(2)) {
           ...process.env,
           AIIMAGE_E2E_ENABLE: "1",
           TAURI_WEBDRIVER_PORT: String(port),
+          ...(catalogFaultMarker && { AIIMAGE_E2E_CATALOG_FAILURE_MARKER: catalogFaultMarker }),
         },
         stdio: "ignore", shell: false, windowsHide: true,
       })
@@ -316,9 +336,13 @@ export async function main(args = process.argv.slice(2)) {
   try {
     await waitForDriver(url, embedded ? 60_000 : 30_000, () => failed !== null);
     if (failed) throw new Error("Windows WebDriver child exited before readiness.");
-    const result = await runWindowsUiSmoke(url, path, { embedded });
+    const result = await runWindowsUiSmoke(url, path, { embedded, catalogFaultMarker });
     process.stdout.write(`M3-33 ${embedded ? "embedded" : "external"} Windows GUI passed: ${JSON.stringify(result)}\n`);
   } finally {
+    if (catalogFaultMarker) {
+      // Remove ONLY this run's random disposable temp marker if not consumed.
+      try { await rm(catalogFaultMarker, { force: true }); } catch {}
+    }
     if (child.exitCode === null && child.pid) {
       if (embedded) {
         // Terminate exactly the process tree this smoke started.
