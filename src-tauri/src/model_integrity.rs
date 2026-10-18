@@ -49,8 +49,11 @@ fn verify_at_root(root: &Path, model_id: &str) -> Result<HashCheck, String> {
     if manifest.is_symlink() {
         return Err("무결성 기록 파일이 안전하지 않습니다.".into());
     }
-    let Ok(meta) = fs::metadata(&manifest) else {
-        return Ok(HashCheck { status: "not_recorded".into() });
+    let meta = match fs::metadata(&manifest) {
+        Ok(info) => info,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound =>
+            return Ok(HashCheck { status: "not_recorded".into() }),
+        Err(_) => return Err("무결성 기록 파일을 읽을 수 없습니다.".into()),
     };
     if !meta.is_file() || meta.len() > MAX_MANIFEST {
         return Err("무결성 기록 파일을 읽을 수 없습니다.".into());
@@ -84,7 +87,7 @@ fn verify_at_root(root: &Path, model_id: &str) -> Result<HashCheck, String> {
         return Err("검사 중 모델 파일이 변경되었습니다.".into());
     }
     let mut hasher = Sha256::new();
-    let mut buffer = [0u8; BUFFER_SIZE];
+    let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut total = 0u64;
     loop {
         let count = file.read(&mut buffer).map_err(|_| "모델 해시를 읽을 수 없습니다.")?;
