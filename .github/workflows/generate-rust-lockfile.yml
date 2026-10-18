@@ -1,0 +1,57 @@
+name: Generate reviewed Rust lockfile (explicit opt-in)
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    # Never check out untrusted fork PR source with a write token.
+    # A repository maintainer must explicitly apply this exact label once.
+    if: ${{ github.event.label.name == 'generate-rust-lockfile' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: true
+      - name: Confirm Rust toolchain
+        run: cargo --version
+      - name: Resolve only Cargo dependency metadata and create real Cargo.lock
+        run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+      - name: Validate default and embedded dependency graphs without compiling
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --locked > /dev/null
+          cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --locked --features e2e-webdriver > /dev/null
+          test -s src-tauri/Cargo.lock
+          grep -q '^name = "aiimage"$' src-tauri/Cargo.lock
+          grep -q '^name = "tauri-plugin-wdio-webdriver"$' src-tauri/Cargo.lock
+      - name: Commit only the generated lockfile to the same PR source branch
+        shell: bash
+        env:
+          SOURCE_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git add -- src-tauri/Cargo.lock
+          if git diff --cached --quiet; then
+            echo "Cargo.lock already consistent"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build(M3-36): commit Cargo-resolved Rust dependency lockfile"
+          # Non-force push rejects concurrent changes to the source branch.
+          git push origin "HEAD:refs/heads/${SOURCE_BRANCH}"
+      - name: Preserve lockfile for inspection if branch push was disallowed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m3-36-cargo-lockfile-for-review
+          path: src-tauri/Cargo.lock
+          if-no-files-found: warn
+          retention-days: 7

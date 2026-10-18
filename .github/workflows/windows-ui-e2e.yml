@@ -27,8 +27,16 @@ jobs:
         run: npm ci --no-fund
       - name: Protocol unit smoke (no GUI)
         run: node --test scripts/windows-ui-e2e.test.mjs
+      - name: Confirm Rust release uses the tracked Cargo.lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --locked > /dev/null
       - name: Compile GPU-disabled Tauri release binary (no installer)
         run: npm run tauri -- build --no-bundle
+      - name: Assert release build did not change Cargo.lock
+        shell: bash
+        run: git diff --exit-code -- src-tauri/Cargo.lock
       - name: Independently probe GPU-disabled release window startup
         shell: pwsh
         env:
