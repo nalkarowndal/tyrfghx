@@ -235,6 +235,22 @@ def test_vram_safe_8gib_trial_is_allowed_without_override(tmp_path):
     assert report["generation"]["status"] == "not_run"
 
 
+def test_under_six_gib_total_blocks_even_if_free_memory_is_high(tmp_path):
+    fixture_model(tmp_path)
+    reading = gpu_report()
+    reading["gpu"]["total_vram_bytes"] = 5 * 1024**3
+    reading["gpu"]["free_vram_bytes_at_check"] = 5 * 1024**3
+    def forbidden(*args, **kwargs):
+        raise AssertionError("VRAM threshold must stop model import")
+    result = run_acceptance(
+        settings(), model_root=tmp_path, execute=True, confirmed=True,
+        gpu_inspector=lambda: reading,
+        torch_loader=forbidden, runner=forbidden,
+    )
+    assert result["status"] == "vram_safety_blocked"
+    assert "total_vram_under_6gib" in result["memory_policy"]["reasons"]
+
+
 def test_low_free_vram_blocks_before_importing_or_running_any_model(tmp_path):
     fixture_model(tmp_path)
     def forbidden(*args, **kwargs):
