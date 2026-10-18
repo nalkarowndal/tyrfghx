@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-17 (session-wide cleanup failure latch for all Windows GPU process routes).**
+> **Current milestone: M3-18 (owner-run system NVIDIA VRAM sampling for Windows QA).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,22 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Observe system VRAM on the real Windows GPU (M3-18)
+
+A new manually operated, **read-only** CLI records sampled NVIDIA GPU
+memory use while the owner separately runs or cancels a Tauri DEBUG
+SDXL generation. Two explicit flags are required, observation is
+limited to 10–900 seconds, and the tool does not load models or reset
+drivers. It prints a bounded, sanitized summary without prompts, image
+paths, user folders or raw command errors.
+
+The readings are **system-wide snapshots**, not app-attributed VRAM
+measurements or a proof of successful GPU-memory release. GeForce/Windows
+WDDM may provide N/A metrics; such failures are reported as inconclusive.
+CI has synthetic readings only; it never runs the owner's GPU.
+
+See [M3-18 owner-run NVIDIA VRAM observation](docs/M3_OWNER_VRAM_OBSERVATION.md).
 
 ## Shared GPU safety lockout after unverified CUDA process cleanup (M3-17)
 
