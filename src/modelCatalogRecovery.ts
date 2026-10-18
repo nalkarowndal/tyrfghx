@@ -12,16 +12,30 @@ export type CatalogEvents = {
   onFinished: () => void;
 };
 
+const textOrNull = (value: unknown): boolean =>
+  value === null || (typeof value === "string" && value.length <= 2_000);
+
 function isSupportedModelRecord(value: unknown): value is ModelRecord {
   if (!value || typeof value !== "object") return false;
   const item = value as Partial<ModelRecord>;
   return typeof item.id === "string" && item.id.length > 0 && item.id.length <= 512
-    && typeof item.name === "string" && item.name.length > 0
+    && typeof item.name === "string" && item.name.length > 0 && item.name.length <= 512
     && ["checkpoint", "lora", "vae"].includes(item.category ?? "")
     && ["safetensors", "ckpt"].includes(item.file_format ?? "")
     && ["metadata_only", "invalid_header", "blocked_legacy"].includes(item.validation ?? "")
-    && typeof item.size_bytes === "number" && Number.isFinite(item.size_bytes)
-    && item.size_bytes >= 0;
+    && typeof item.size_bytes === "number" && Number.isSafeInteger(item.size_bytes)
+    && item.size_bytes >= 0
+    && typeof item.note === "string" && item.note.length <= 2_000
+    && textOrNull(item.reported_architecture)
+    && textOrNull(item.display_name)
+    && (item.family === null || ["sd15", "sd2", "sdxl", "sd3", "flux"].includes(item.family ?? ""))
+    && ["manual", "header", "unknown"].includes(item.family_source ?? "")
+    && textOrNull(item.license) && textOrNull(item.notes)
+    && ["not_recorded", "snapshot_unchanged", "file_changed"].includes(item.integrity_state ?? "")
+    && textOrNull(item.recorded_sha256)
+    && Array.isArray(item.potential_duplicate_ids)
+    && item.potential_duplicate_ids.length <= 3_000
+    && item.potential_duplicate_ids.every(id => typeof id === "string" && id.length <= 512);
 }
 
 /**
