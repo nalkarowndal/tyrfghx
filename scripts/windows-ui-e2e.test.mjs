@@ -1,7 +1,8 @@
+import { resolve } from "node:path";
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { runWindowsUiSmoke, requestWebDriver, waitForDriver, allocateDriverPorts, safeWebDriverErrorCode, describeNativeSessionProblem } from "./windows-ui-e2e.mjs";
+import { runWindowsUiSmoke, requestWebDriver, waitForDriver, allocateDriverPorts, safeWebDriverErrorCode, describeNativeSessionProblem, isExpectedReleaseApp } from "./windows-ui-e2e.mjs";
 
 const ELEMENT = "element-6066-11e4-a52e-4f735466cecf";
 const makeResponse = (reply, status = 200) => ({
@@ -292,4 +293,14 @@ test("M3-33: embedded in-app WebDriver uses no external app-launch capabilities"
     assert.equal(server.closed, true, "embedded W3C session must close");
     assert.equal(server.modelRefreshCount, 1);
   } finally { await server.close(); }
+});
+
+test("M3-34: E2E launcher accepts only this checkout's release executable", () => {
+  const root = resolve("/tmp", "aiimage-test-checkout");
+  const expected = resolve(root, "src-tauri", "target", "release", "aiimage.exe");
+  assert.equal(isExpectedReleaseApp(expected, root), true);
+  assert.equal(isExpectedReleaseApp(resolve(root, "bin", "untrusted.exe"), root), false);
+  assert.equal(isExpectedReleaseApp(resolve(root, "src-tauri", "target", "debug", "aiimage.exe"), root), false);
+  assert.equal(isExpectedReleaseApp("aiimage.exe", root), false);
+  assert.equal(isExpectedReleaseApp(null, root), false);
 });
