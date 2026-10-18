@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-14 (sanitized GPU job failure categories and guided recovery).**
+> **Current milestone: M3-15 (private bounded stdin request for Windows GPU generation).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -45,6 +45,24 @@ by the separate CLI. Browser builds cannot read local output files; no generic
 filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORKSPACE.md) and
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
+
+## Keep private generation prompts off process command lines (M3-15)
+
+Windows Tauri DEBUG builds now send image generation settings to the
+fixed offline Python script through a **bounded 32KiB UTF-8 JSON stdin
+pipe**, not `--prompt` and `--checkpoint` process arguments. This
+reduces accidental command-line disclosure and supports Unicode prompts
+that begin with a dash. Python strictly validates the schema, rejects
+duplicate/unknown keys and non-standard numbers, and requires explicit
+`--request-stdin --execute --metrics` mode flags.
+
+The Windows job supervisor, CPU-offloading SDXL engine, explicit user
+consent, fixed local interpreter/script, 30-minute Job Object watchdog
+and verified PNG result remain. No automatic retry, download, network
+execution, release-mode GPU access or real hardware QA is introduced.
+Manual Python CLI flags remain available for deliberate terminal use.
+
+See [M3-15 private stdin protocol](docs/M3_PRIVATE_GENERATION_STDIN.md).
 
 ## GPU generation failure classification and safe recovery (M3-14)
 
