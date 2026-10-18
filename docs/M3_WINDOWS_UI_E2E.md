@@ -36,10 +36,17 @@ access beyond the process-local synthetic HTTP server.
 
 ## Real GUI workflow (explicit human trigger)
 
-Select **Actions → Windows native UI E2E (opt-in) → Run workflow** and set
-`confirm_release_only=true`. GitHub then uses a fresh hosted Windows
-runner to compile the Tauri RELEASE executable (no installer), install
-WebDriver/Edge driver prerequisites and invoke:
+While this PR is still a Draft stacked branch, `workflow_dispatch` may
+not be selectable until its workflow exists on the repository's default branch.
+For an explicit **pre-merge** run, apply the `run-native-ui-e2e` label to a
+**same-repository** pull request containing this workflow. This authorizes the
+opt-in Windows CI job; removing the label stops future triggered runs. The job
+does not run for unlabeled PRs or forks. After the workflow reaches the default
+branch, you can instead select **Actions → Windows native UI E2E (opt-in) →
+Run workflow** with `confirm_release_only=true`.
+
+GitHub then uses a fresh hosted Windows runner to compile the Tauri RELEASE
+executable (no installer), install WebDriver/Edge driver prerequisites and invoke:
 
 ```powershell
 $env:AIIMAGE_E2E_APP = (Resolve-Path "src-tauri\target\release\aiimage.exe").Path
