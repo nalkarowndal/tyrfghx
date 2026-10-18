@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import GpuDiagnosticsPanel from "./GpuDiagnosticsPanel";
+import VramPreflightPanel from "./VramPreflightPanel";
 import type { ModelRecord } from "./api";
 import { DEFAULT_IMAGE_SETTINGS, preflightImageSettings, type ImageSettings } from "./generationWorkspacePlan";
 import { getNativeGenerationPreviews, type GenerationPreview } from "./nativeGenerationGallery";
@@ -105,13 +106,26 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
     }
   }, [desktop, job?.job_id, job?.phase]);
 
+  function applySafeTrial() {
+    setSettings(previous => ({ ...previous, width: 512, height: 512, steps: 15 }));
+    setChecked(false);
+    setConsent(false);
+    setVramRiskConsent(false);
+    setJobError("");
+  }
+
   const jobBusy = job?.phase === "running" || job?.phase === "cancelling";
   const canRun = desktop && runnerSupported && assessment.ok && consent && jobStatusLoaded && !jobBusy && !jobLoading;
   return <div className="generation-layout">
     <section className="generation-panel" aria-label="이미지 생성 설정">
-      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-12 · VRAM 안전 검사</span></div>
+      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-13 · VRAM 재검사 및 복구</span></div>
       <p className="muted">Windows Tauri 개발판에서는 명시적으로 승인한 한 건의 로컬 SDXL 추론을 시작하거나 중지할 수 있습니다. 배포판과 웹 브라우저에서는 비활성화됩니다.</p>
       <GpuDiagnosticsPanel supported={runnerSupported} busy={jobBusy || jobLoading} />
+      <VramPreflightPanel
+        key={settings.width + "x" + settings.height}
+        supported={runnerSupported} busy={jobBusy || jobLoading}
+        width={settings.width} height={settings.height} onApplySafe={applySafeTrial}
+      />
       <div className="generation-fields">
         <label>체크포인트
           <select aria-label="생성 체크포인트" value={settings.checkpointId} onChange={e => update("checkpointId", e.target.value)}>

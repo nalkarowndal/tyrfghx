@@ -218,6 +218,44 @@ pub fn local_generation_supported() -> bool {
     cfg!(all(windows, debug_assertions))
 }
 
+/// Only dimensions cross IPC; neither the executable nor a model path can be
+/// chosen by the browser. The returned snapshot is advice, never a token
+/// authorizing inference, which must recheck CUDA again before spawning.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VramCheckRequest {
+    width: u32,
+    height: u32,
+}
+
+#[tauri::command]
+pub async fn check_local_generation_vram(
+    state: State<'_, JobManager>,
+    request: VramCheckRequest,
+) -> Result<super::vram_safety::TrialAssessment, String> {
+    if !cfg!(all(windows, debug_assertions)) {
+        return Err("GPU 검사는 Windows Tauri 개발판에서만 지원합니다.".into());
+    }
+    // Reject malformed dimensions without initializing CUDA.
+    if !(512..=1024).contains(&request.width)
+        || !(512..=1024).contains(&request.height)
+        || request.width % 64 != 0 || request.height % 64 != 0
+    {
+        return Err("지원하지 않는 이미지 크기입니다.".into());
+    }
+    let permit = state.reserve_diagnostic()?;
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let (_permit, (total, free)) = tauri::async_runtime::spawn_blocking(move || {
+        // The worker keeps the shared lock even if a webview closes while
+        // its bounded Windows Python diagnostic is running.
+        let _held = permit;
+        let reading = super::gpu_diagnostics::read_local_vram(repo)?;
+        Ok::<_, String>((_held, reading))
+    })
+    .await.map_err(|_| "GPU 검사 작업이 중단되었습니다.".to_string())??;
+    super::vram_safety::assess_trial(total, free, request.width, request.height)
+}
+
 #[tauri::command]
 pub async fn start_local_generation(
     app: AppHandle,
@@ -470,6 +508,16 @@ mod tests {
         let mut bad = request();bad.guidance=f64::NAN;
         assert!(validate_request(&bad).is_err());
     }
+    #[test] fn vram_readonly_request_disallows_executable_or_model_paths() {
+        let valid = serde_json::json!({ "width": 512, "height": 768 });
+        let decoded: VramCheckRequest = serde_json::from_value(valid).unwrap();
+        assert_eq!((decoded.width, decoded.height), (512, 768));
+        let illegal = serde_json::json!({
+            "width": 512, "height": 768, "executable": "C:/fake/python.exe"
+        });
+        assert!(serde_json::from_value::<VramCheckRequest>(illegal).is_err());
+    }
+
     #[test] fn old_ipc_requests_default_to_no_vram_override() {
         let json = serde_json::json!({
             "checkpointId":"checkpoints/a.safetensors",
