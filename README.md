@@ -3,13 +3,22 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-27 (fail-closed model catalog recovery and privacy-safe manual retry).**
+> **Current milestone: M3-28 (catalog-bound native verification results and fresh GPU consent).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-28: catalog-bound native verification and fresh GPU consent
+
+Late native SHA-256 or model comparison results are discarded after catalog
+refresh or changed selections, so old validation does not appear for newly
+loaded models. GPU and VRAM-risk consent now expire when the model catalog
+snapshot changes, including a refresh that reuses the same model ID; existing
+Rust GPU safeguards remain. No GPU generation occurs in these tests. See
+[M3-28 catalog safety](docs/M3_CATALOG_BOUND_SAFETY.md).
 
 ## M3-27: fail-closed model catalog loading and retry
 
