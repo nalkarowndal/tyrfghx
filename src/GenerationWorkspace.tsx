@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import GpuDiagnosticsPanel from "./GpuDiagnosticsPanel";
+import { describeGenerationFailure, explainGenerationStartError } from "./generationRecovery";
 import VramPreflightPanel from "./VramPreflightPanel";
 import type { ModelRecord } from "./api";
 import { DEFAULT_IMAGE_SETTINGS, preflightImageSettings, type ImageSettings } from "./generationWorkspacePlan";
@@ -80,7 +81,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
       setConsent(false);
       setVramRiskConsent(false);
     } catch (reason) {
-      setJobError(String(reason));
+      setJobError(explainGenerationStartError(reason));
     } finally {
       setJobLoading(false);
     }
@@ -115,10 +116,11 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   }
 
   const jobBusy = job?.phase === "running" || job?.phase === "cancelling";
+  const recoveryAdvice = describeGenerationFailure(job);
   const canRun = desktop && runnerSupported && assessment.ok && consent && jobStatusLoaded && !jobBusy && !jobLoading;
   return <div className="generation-layout">
     <section className="generation-panel" aria-label="이미지 생성 설정">
-      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-13 · VRAM 재검사 및 복구</span></div>
+      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-14 · 생성 오류 안내</span></div>
       <p className="muted">Windows Tauri 개발판에서는 명시적으로 승인한 한 건의 로컬 SDXL 추론을 시작하거나 중지할 수 있습니다. 배포판과 웹 브라우저에서는 비활성화됩니다.</p>
       <GpuDiagnosticsPanel supported={runnerSupported} busy={jobBusy || jobLoading} />
       <VramPreflightPanel
@@ -184,6 +186,16 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
           <strong>작업 상태: {job?.phase ?? (jobStatusLoaded ? "idle" : "확인 중")}</strong>
           <p>{job?.message ?? "대기 중"}</p>
           <p>경과 시간: {job?.elapsed_seconds ?? 0}초 / 최대 {job?.time_limit_seconds ?? 1800}초</p>
+          {recoveryAdvice && <section className="generation-recovery" aria-label="오류 원인과 복구 안내">
+            <strong>{recoveryAdvice.title}</strong>
+            <p>{recoveryAdvice.explanation}</p>
+            <p>{recoveryAdvice.nextStep}</p>
+            {recoveryAdvice.offerSafePreset && <button type="button" className="refresh-button"
+              onClick={applySafeTrial} disabled={jobBusy || jobLoading}>
+              512×512 · 15스텝으로 변경 (자동 재실행 안 함)
+            </button>}
+            <p>GPU 또는 VRAM 환경을 다시 확인한 후 새 작업을 시작하려면 GPU 실행 동의를 다시 선택해야 합니다.</p>
+          </section>}
           {job?.phase === "succeeded" && job.result && <div className="generation-metrics">
             <strong>결과 파일 디코딩·체크섬 확인</strong>
             <p>파일: {job.result.file_name} · 이미지 크기: {job.result.width}×{job.result.height}</p>

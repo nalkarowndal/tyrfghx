@@ -21,6 +21,7 @@ export type JobSnapshot = {
   elapsed_seconds: number;
   time_limit_seconds: number;
   result: VerifiedGeneration | null;
+  failure_code?: import("./generationRecovery").GenerationFailureCode | null;
 };
 
 /** Windows DEBUG builds only. No paths, executables or arbitrary command names cross IPC. */
