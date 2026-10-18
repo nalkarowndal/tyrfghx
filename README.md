@@ -3,13 +3,24 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-34 (verified embedded GUI and negative production WebDriver exposure QA).**
+> **Current milestone: M3-35 (embedded HTTP WebDriver runtime opt-in negative tests).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-35: runtime consent guard verified independently of production binary
+
+M3-34 completed its real hosted Windows tests: the normal production-feature
+release did **not** open a WebDriver listener despite test environment flags,
+and the isolated embedded release GUI test passed. M3-35 adds Rust unit
+coverage for the *two-part* runtime opt-in and an additional **opt-in**
+Windows test to prove that even a special E2E-feature executable stays closed
+when either runtime permission or the required port is missing or invalid.
+The actual GUI suite is reused afterward. See
+[M3-35 embedded runtime guard QA](docs/M3_EMBEDDED_RUNTIME_OPTIN_QA.md).
 
 ## M3-34: verified real GUI, prove production release has no test HTTP driver
 
