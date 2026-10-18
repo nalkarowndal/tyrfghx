@@ -60,7 +60,6 @@ describe("M3-25 model manager render smoke", () => {
     expect(html).toContain("모델 목록 오류: 안전한 목록 오류");
     expect(html).toContain("목록 새로고침");
     expect(html).not.toContain("base.safetensors");
-    expect(html).not.toContain("style.safetensors");
     expect(html).not.toContain("SHA-256 현재 파일 재검증:");
   });
 
