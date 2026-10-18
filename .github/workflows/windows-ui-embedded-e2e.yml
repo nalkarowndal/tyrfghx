@@ -32,8 +32,17 @@ jobs:
         run: |
           if ((Get-Content src-tauri/Cargo.toml -Raw) -notmatch 'default = \[\]') { throw 'E2E Cargo feature must not be default' }
           if ((Get-Content src-tauri/tauri.conf.json -Raw) -match 'webdriver-e2e') { throw 'Production Tauri config must exclude E2E capability' }
+      - name: Assert exact committed Cargo versions for both build modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --locked > /dev/null
+          cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --locked --features e2e-webdriver > /dev/null
       - name: Build ordinary production feature set without an installer
         run: npm run tauri -- build --no-bundle
+      - name: Reject any Cargo.lock rewrite during normal release compilation
+        shell: bash
+        run: git diff --exit-code -- src-tauri/Cargo.lock
       - name: Reject production WebDriver exposure even with test environment flags
         shell: pwsh
         env:
@@ -41,6 +50,9 @@ jobs:
         run: ./scripts/windows-production-webdriver-absence.ps1 -Application $env:AIIMAGE_E2E_APP
       - name: Build GPU-disabled E2E-only Tauri executable, never an installer
         run: npm run tauri -- build --no-bundle --features e2e-webdriver --config src-tauri/tauri.e2e.conf.json
+      - name: Reject any Cargo.lock rewrite during embedded feature compilation
+        shell: bash
+        run: git diff --exit-code -- src-tauri/Cargo.lock
       - name: Require incomplete runtime flags to keep embedded HTTP server closed
         shell: pwsh
         env:
