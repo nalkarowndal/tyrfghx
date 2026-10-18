@@ -179,7 +179,9 @@ pub(crate) fn scan_native_models(root: &Path) -> Result<Vec<ModelRecord>, String
 // consumed, never model files, registries, weights or user paths.
 #[cfg(feature = "e2e-webdriver")]
 fn consume_one_shot_e2e_fault() -> bool {
-    if std::env::var("AIIMAGE_E2E_ENABLE").as_deref() != Ok("1") {
+    let enable = std::env::var("AIIMAGE_E2E_ENABLE").ok();
+    let port = std::env::var("TAURI_WEBDRIVER_PORT").ok();
+    if !super::embedded_webdriver_authorized(enable.as_deref(), port.as_deref()) {
         return false;
     }
     let Ok(value) = std::env::var("AIIMAGE_E2E_CATALOG_FAILURE_MARKER") else {
