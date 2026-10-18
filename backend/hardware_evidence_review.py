@@ -13,6 +13,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+from independent_png_qa import verify_local_png
+
 MAX_INPUT_BYTES = 64 * 1024
 MAX_MIB = 256 * 1024
 ACCEPTANCE_STATUSES = frozenset({
@@ -165,6 +167,7 @@ def _read_observer(source: dict[str, Any]) -> dict[str, Any]:
 def summarize_hardware_evidence(
     acceptance: dict[str, Any], observer: dict[str, Any],
     acceptance_sha256: str, observer_sha256: str,
+    *, local_png_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Not a hardware qualification: evidence still needs independent review."""
     a = _read_acceptance(acceptance)
@@ -177,6 +180,8 @@ def summarize_hardware_evidence(
         "status": "evidence_available_for_manual_review" if both_complete else
                   "incomplete_evidence",
         "automatic_hardware_acceptance": "not_performed",
+        "independent_png": local_png_result if local_png_result is not None else
+                           {"verification": "not_requested"},
         "sources": {
             "generation": {"sha256_of_input_json": acceptance_sha256, **a},
             "system_gpu_memory": {"sha256_of_input_json": observer_sha256, **v},
@@ -184,7 +189,7 @@ def summarize_hardware_evidence(
         "manual_checks": {key: "not_tested" for key in MANUAL_CHECKS},
         "limitations": [
             "입력 JSON은 사용자가 제공한 보고서이며 이 도구가 실제 GPU 실행 여부를 독립적으로 검증하지 않았습니다.",
-            "PNG의 실제 픽셀과 해시를 다시 읽지 않았습니다. 원본 파일을 별도로 확인해야 합니다.",
+            "독립 PNG 검증은 사용자가 출력 폴더를 지정한 경우에만 실행합니다. 파일이 정상이어도 이미지 의미와 미적 품질은 평가하지 않습니다.",
             "두 보고서가 동일 GPU 또는 동일 생성 세션에서 수집됐다는 증거가 없습니다.",
             "nvidia-smi 메모리는 시스템 전체의 간헐적 샘플이며 앱 고유 VRAM 회수 증거가 아닙니다.",
             "시각적 품질, Windows 자식 프로세스 정리, 네트워크 격리, 앱 조작은 사람이 검수해야 합니다.",
@@ -198,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--generation-json", type=Path, required=True)
     parser.add_argument("--gpu-memory-json", type=Path, required=True)
+    parser.add_argument("--output-root", type=Path,
+                        help="Optional explicit LOCAL output directory containing the source-claimed PNG.")
     parser.add_argument("--confirm-review", action="store_true",
                         help="Deliberately read these two local evidence files.")
     args = parser.parse_args(argv)
@@ -206,7 +213,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         a, a_hash = load_local_evidence(args.generation_json)
         v, v_hash = load_local_evidence(args.gpu_memory_json)
-        report = summarize_hardware_evidence(a, v, a_hash, v_hash)
+        # The operator explicitly supplies an output directory. File names are
+        # taken solely from the already-validated M3-10 claim, then strictly
+        # matched to one bounded regular file. Never scan arbitrary folders.
+        png_result = None
+        if args.output_root is not None:
+            validated_generation = _read_acceptance(a)
+            if not validated_generation["png_claimed_by_source"]:
+                raise ValueError("png_source_not_verified")
+            png_result = verify_local_png(args.output_root, a["generation"])
+        report = summarize_hardware_evidence(
+            a, v, a_hash, v_hash, local_png_result=png_result
+        )
         print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
         return 0 if report["status"] == "evidence_available_for_manual_review" else 2
     except (ValueError, TypeError, OverflowError) as error:
@@ -219,6 +237,9 @@ def main(argv: list[str] | None = None) -> int:
             "acceptance_status_inconsistent", "acceptance_png_claim_invalid",
             "vram_schema_invalid", "vram_samples_inconsistent",
             "vram_measurement_missing", "vram_measurement_inconsistent",
+            "png_source_not_verified", "png_claim_invalid", "png_output_root_invalid",
+            "png_file_missing_or_unsafe", "png_size_mismatch",
+            "png_sha256_mismatch", "png_content_invalid",
         }
         code = str(error)
         print(json.dumps({
