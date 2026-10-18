@@ -1,0 +1,42 @@
+name: Windows native UI E2E (opt-in)
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_release_only:
+        description: "I understand this launches ONLY the GPU-disabled Tauri RELEASE UI on a fresh hosted Windows runner."
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  native-windows-ui:
+    if: ${{ inputs.confirm_release_only == true }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install locked JS dependencies
+        run: npm ci --no-fund
+      - name: Protocol unit smoke (no GUI)
+        run: node --test scripts/windows-ui-e2e.test.mjs
+      - name: Compile GPU-disabled Tauri release binary (no installer)
+        run: npm run tauri -- build --no-bundle
+      - name: Install native WebDriver (official Tauri documented approach)
+        run: cargo install tauri-driver --locked
+      - name: Resolve Edge WebDriver for Windows
+        shell: pwsh
+        run: |
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          & "$HOME/.cargo/bin/msedgedriver-tool.exe"
+          $PWD.Path >> $env:GITHUB_PATH
+      - name: Actual native Windows GUI click-through (no GPU consent)
+        shell: pwsh
+        env:
+          AIIMAGE_E2E_APP: ${{ github.workspace }}\src-tauri\target\release\aiimage.exe
+        run: node scripts/windows-ui-e2e.mjs --run
