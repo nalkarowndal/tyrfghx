@@ -30,9 +30,10 @@ export async function requestWebDriver(base, method, route, body) {
   return payload.value;
 }
 
-export async function waitForDriver(base, maxMillis = 30_000) {
+export async function waitForDriver(base, maxMillis = 30_000, driverFailed = () => false) {
   const deadline = Date.now() + maxMillis;
   while (Date.now() < deadline) {
+    if (driverFailed()) throw new Error("Local Tauri WebDriver process exited before readiness.");
     try {
       const status = await requestWebDriver(base, "GET", "/status");
       if (status?.ready !== false) return;
@@ -44,7 +45,7 @@ export async function waitForDriver(base, maxMillis = 30_000) {
 
 export async function runWindowsUiSmoke(base, application) {
   const session = await requestWebDriver(base, "POST", "/session", {
-    capabilities: { alwaysMatch: { "tauri:options": { application } } },
+    capabilities: { alwaysMatch: { browserName: "wry", "tauri:options": { application } } },
   });
   const sid = session?.sessionId;
   assert.match(sid ?? "", /^[a-zA-Z0-9-]{8,128}$/, "No valid native GUI session");
@@ -56,6 +57,7 @@ export async function runWindowsUiSmoke(base, application) {
   };
   const getText = id => call("GET", `/element/${id}/text`);
   const click = id => call("POST", `/element/${id}/click`, {});
+  const selected = id => call("GET", `/element/${id}/selected`);
   const bodyText = async () => {
     const [body] = await elements("body");
     if (!body) throw new Error("Native UI body is absent");
@@ -92,22 +94,42 @@ export async function runWindowsUiSmoke(base, application) {
     await clickButton("button", "입력 사전 검사");
     await waitText("유효한 Safetensors 체크포인트를 선택해야 합니다.");
 
-    // In a release build native GPU commands are unsupported by design.
-    const gpu = await elements('button[aria-label="GPU 생성 시작 (개발판 전용)"]');
-    // Button has visible text rather than aria-label; verify its disabled state.
-    const buttons = await elements("button");
-    let foundGpu = false;
-    for (const id of buttons) {
-      if ((await getText(id)).includes("GPU 생성 시작")) {
-        foundGpu = true;
-        const enabled = await call("GET", `/element/${id}/enabled`);
-        assert.equal(enabled, false, "Release UI must never enable GPU generation");
+    // Release build must never authorize a GPU operation. Read-only checks:
+    // do not click consent or native GPU controls, load weights or open dialogs.
+    async function verifyReleaseSafety() {
+      const buttons = await elements("button");
+      const gpuActions = [];
+      for (const id of buttons) {
+        if ((await getText(id)).includes("GPU 생성 시작")) gpuActions.push(id);
+      }
+      assert.equal(gpuActions.length, 1, "Expected exactly one GPU launch control");
+      assert.equal(
+        await call("GET", `/element/${gpuActions[0]}/enabled`),
+        false,
+        "Release UI must never enable GPU generation",
+      );
+      for (const [css, name] of [
+        ['input[aria-label="실제 GPU 추론 실행 동의"]', "GPU consent"],
+        ['input[aria-label="VRAM 부족 위험 별도 동의"]', "VRAM override"],
+      ]) {
+        const matches = await elements(css);
+        assert.equal(matches.length, 1, `Missing or duplicate ${name} checkbox`);
+        assert.equal(await selected(matches[0]), false, `${name} must be unchecked`);
       }
     }
-    assert.equal(foundGpu, true, "GPU action must be visibly disabled in release");
+    await verifyReleaseSafety();
     await clickButton('nav[aria-label="작업 도구"] button', "모델 관리");
     await waitText("로컬 모델 관리");
-    return { navigation: "passed", missing_checkpoint_preflight: "passed", release_gpu_block: "passed" };
+    // Navigation must not revive GPU consent, even without any model file.
+    await clickButton('nav[aria-label="작업 도구"] button', "이미지 생성");
+    await waitText("입력 사전 검사");
+    await verifyReleaseSafety();
+    return {
+      navigation: "passed",
+      missing_checkpoint_preflight: "passed",
+      release_gpu_block: "passed",
+      consent_unchecked_after_navigation: "passed",
+    };
   } finally {
     try { await call("DELETE", "", undefined); } catch { /* never mask test verdict */ }
   }
@@ -125,14 +147,15 @@ export async function main(args = process.argv.slice(2)) {
   // Read-only user-created tool on PATH; no shell interpolation, auto-install or escalation.
   const driver = spawn(driverBinary, [], { stdio: "ignore", shell: false, windowsHide: true });
   let driverFailed = null;
-  driver.on("error", e => { driverFailed = e; });
+  driver.on("error", () => { driverFailed = "start_failed"; });
+  driver.on("exit", () => { driverFailed = "exited"; });
   try {
-    await waitForDriver(DRIVER_URL);
+    await waitForDriver(DRIVER_URL, 30_000, () => driverFailed !== null);
     if (driverFailed) throw new Error("Tauri WebDriver failed to start.");
     const result = await runWindowsUiSmoke(DRIVER_URL, path);
     process.stdout.write(`M3-26 native Windows GUI checks passed: ${JSON.stringify(result)}\n`);
   } finally {
-    driver.kill();
+    if (driver.exitCode === null) driver.kill();
   }
 }
 
