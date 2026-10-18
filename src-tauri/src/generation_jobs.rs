@@ -61,6 +61,9 @@ pub struct JobManager {
     next_id: AtomicU64,
     current: Mutex<Option<RunningJob>>,
     diagnostic_active: Arc<AtomicBool>,
+    // Irreversible within this app session. Cleanup failures from either
+    // inference OR read-only CUDA probes make every later GPU action fail closed.
+    cleanup_fault: Arc<AtomicBool>,
 }
 
 pub(crate) struct DiagnosticPermit(Arc<AtomicBool>);
@@ -75,10 +78,17 @@ fn terminal_cleanup_unverified(snapshot: &JobSnapshot) -> bool {
 }
 
 impl JobManager {
+    pub(crate) fn cleanup_fault_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cleanup_fault)
+    }
+
     /// A scoped single-flight diagnostic reservation: protects concurrent
     /// windows and prevents a CUDA check overlapping with live inference.
     pub(crate) fn reserve_diagnostic(&self) -> Result<DiagnosticPermit, String> {
         let guard = self.current.lock().map_err(|_| "Job manager unavailable")?;
+        if self.cleanup_fault.load(Ordering::SeqCst) {
+            return Err("이전 GPU 작업 또는 CUDA 진단의 Windows 프로세스 종료를 검증하지 못했습니다. 작업 관리자에서 프로세스를 확인한 뒤 앱을 다시 시작하세요.".into());
+        }
         if let Some(job) = guard.as_ref() {
             let status = job.snapshot.lock().map_err(|_| "Job status unavailable")?;
             if status.phase == "running" || status.phase == "cancelling" {
@@ -347,11 +357,12 @@ pub async fn check_local_generation_vram(
     }
     let permit = state.reserve_diagnostic()?;
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let cleanup_fault = state.cleanup_fault_flag();
     let (_permit, (total, free)) = tauri::async_runtime::spawn_blocking(move || {
         // The worker keeps the shared lock even if a webview closes while
         // its bounded Windows Python diagnostic is running.
         let _held = permit;
-        let reading = super::gpu_diagnostics::read_local_vram(repo)?;
+        let reading = super::gpu_diagnostics::read_local_vram(repo, cleanup_fault)?;
         Ok::<_, String>((_held, reading))
     })
     .await.map_err(|_| "GPU 검사 작업이 중단되었습니다.".to_string())??;
@@ -377,6 +388,7 @@ pub async fn start_local_generation(
     // The scoped permit is retained until the child is registered in state.
     let probe_permit = state.reserve_diagnostic()?;
     let probe_repo = repo.clone();
+    let probe_fault = state.cleanup_fault_flag();
     // The blocking worker OWNS the reservation while probing. If the
     // originating UI/window cancels the async invoke, the worker still
     // holds the reservation until the OS-supervised probe exits.
@@ -384,7 +396,7 @@ pub async fn start_local_generation(
     let (_preflight_permit, (total_vram, free_vram)) =
         tauri::async_runtime::spawn_blocking(move || {
             let _held = probe_permit;
-            let reading = super::gpu_diagnostics::read_local_vram(probe_repo)?;
+            let reading = super::gpu_diagnostics::read_local_vram(probe_repo, probe_fault)?;
             Ok::<_, String>((_held, reading))
         })
         .await.map_err(|_| "CUDA 사전 검사 작업이 비정상 종료되었습니다.".to_string())??;
@@ -463,6 +475,7 @@ pub async fn start_local_generation(
     let worker_snapshot = Arc::clone(&snapshot);
     let worker_cancelled = Arc::clone(&cancelling);
     let worker_group = Arc::clone(&group);
+    let worker_fault = state.cleanup_fault_flag();
     let output_root = repo.join("outputs");
     let expected_seed = request.seed;
     let expected_width = request.width;
@@ -510,6 +523,11 @@ pub async fn start_local_generation(
         let group_cleanup = worker_group.terminate().and_then(|_| {
             worker_group.verify_drained(Duration::from_secs(2))
         });
+        if group_cleanup.is_err() {
+            // Latch BEFORE marking job terminal so no racing new probe or
+            // generation can bypass a failed process-group verification.
+            worker_fault.store(true, Ordering::SeqCst);
+        }
         let (mut phase, mut message) = outcome_message(
             exit_status.as_ref().is_some_and(|s| s.success()),
             &stderr,
@@ -754,6 +772,19 @@ mod tests {
         assert!(!terminal_cleanup_unverified(&other));
         state.phase = "cancelled".into();
         assert!(terminal_cleanup_unverified(&state));
+    }
+
+    #[test]
+    fn shared_cleanup_fault_latches_across_gpu_diagnostic_reservations() {
+        let state = JobManager::default();
+        assert!(state.reserve_diagnostic().is_ok());
+        let fault = state.cleanup_fault_flag();
+        fault.store(true, Ordering::SeqCst);
+        assert!(state.reserve_diagnostic().unwrap_err().contains("프로세스 종료"));
+        // No UI restart button or request payload can clear this latch:
+        assert!(fault.load(Ordering::SeqCst));
+        let another_handle = state.cleanup_fault_flag();
+        assert!(another_handle.load(Ordering::SeqCst));
     }
 
     #[test] fn diagnostic_reservation_is_single_flight_and_releases_on_drop() {
