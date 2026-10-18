@@ -30,7 +30,7 @@ if ($report.status -notin @(
 }
 $names = @($report.checks | ForEach-Object { $_.name })
 $expected = @("windows", "node", "npm", "cargo", "rust_msvc",
-              "repository", "frontend_dependencies", "webview2", "msvc_cpp", "optional_python")
+              "repository", "npm_lockfile", "frontend_dependencies", "webview2", "msvc_cpp", "optional_python")
 foreach ($name in $expected) {
     if ($names -notcontains $name) {
         throw ("Missing readiness category: " + $name)

@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-22 (Windows Tauri development prerequisite check and explicit launch).**
+> **Current milestone: M3-23 (locked/audited Node dependencies; Vitest 5 and reproducible npm CI).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -46,18 +46,36 @@ filesystem API is added. See [M3-2 generation workspace](docs/M3_GENERATION_WORK
 [M3-3 Windows local job runner](docs/M3_LOCAL_JOB_RUNNER.md), plus
 [M3-5 Windows process-group supervision](docs/M3_WINDOWS_PROCESS_GROUP.md).
 
+## Install reproducible and audited Node dependencies (M3-23)
+
+The previous Windows CI reported three known npm vulnerabilities
+(1 moderate and 2 critical) originating in development-time Vitest 3
+and its transitive mock/worker tooling. M3-23 upgrades to
+**Vitest 5.0.5 / Vite 6.4.4**, commits an exact npm
+`package-lock.json`, and uses `npm ci --no-fund` on Linux/Windows.
+The initial GitHub-hosted npm audit on the updated lockfile
+reported **zero known findings**. CI now runs
+`npm audit --audit-level=moderate` on the locked dependency tree.
+
+This requires **Node.js 22.12+** and does NOT enable GPU inference,
+produce a packaged installer or imply that Python, Rust, CUDA and the
+owner's Windows PC are security-audited. Existing explicit inference
+consent remains unchanged.
+
+Read [M3-23 dependency lock and audit](docs/M3_LOCKED_DEPENDENCY_SECURITY.md).
+
 ## Check Windows prerequisites and open the development app (M3-22)
 
 From the repo root on Windows, run `./scripts/windows-dev.ps1` for a
 **read-only check** of Node/npm, Rust MSVC toolchain, Tauri frontend
 dependencies and advisory MSVC/WebView2 setup. Nothing is installed or
 executed on the GPU. Use `-AsJson` for a machine-readable report,
-`npm install` yourself when frontend dependencies are missing, then
+`npm ci` yourself when frontend dependencies are missing, then
 `./scripts/windows-dev.ps1 -Start` only when you explicitly want to
 open the existing Tauri DEBUG development UI.
 
-The repo currently has **no committed package-lock.json**; do not
-assume `npm ci` works. This launcher is not a packaged Windows
+The repo **now includes a committed package-lock.json**; use
+`npm ci` for deterministic frontend dependencies. This launcher is not a packaged Windows
 installer, does not download Python/SDXL dependencies, and does not
 auto-consent to inference. The local `.venv` is optional for opening
 the UI and separately required for owner-authorized GPU attempts.
