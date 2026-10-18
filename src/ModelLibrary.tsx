@@ -3,6 +3,7 @@ import { getCompatibility, type CompatibilityReport, type ModelRecord } from "./
 import { isTauri } from "@tauri-apps/api/core";
 import { importModelFromNativeDialog, type ImportCategory } from "./nativeModelImport";
 import { compareNativeModels, verifyNativeModelHash, type ModelHashCheckStatus } from "./nativeModelCatalog";
+import { belongsToActiveCatalogRequest } from "./catalogRequestGate";
 
 const categories: Record<ModelRecord["category"], string> = {
   checkpoint: "체크포인트", lora: "LoRA", vae: "VAE",
@@ -69,16 +70,16 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
     });
     try {
       const report = await verifyNativeModelHash(modelId);
-      if (catalogEpoch.current === epoch && hashRequest.current === request) {
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, hashRequest.current)) {
         setHashResults(previous => ({ ...previous, [modelId]: report.status }));
       }
     } catch {
-      if (catalogEpoch.current === epoch && hashRequest.current === request) {
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, hashRequest.current)) {
         // Never render raw native paths or error details.
         setHashError(modelId);
       }
     } finally {
-      if (catalogEpoch.current === epoch && hashRequest.current === request) {
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, hashRequest.current)) {
         setHashBusy(null);
       }
     }
@@ -129,15 +130,15 @@ export default function ModelLibrary({ items, isLoading, error, onRefresh }: {
       const result = desktopApp
         ? compareNativeModels(availableItems, checkpointId, loraId)
         : await getCompatibility(checkpointId, loraId);
-      if (catalogEpoch.current === epoch && compareRequest.current === request) {
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, compareRequest.current)) {
         setReport(result);
       }
     } catch {
-      if (catalogEpoch.current === epoch && compareRequest.current === request) {
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, compareRequest.current)) {
         setCompareError("계열 비교를 완료하지 못했습니다. 연결 상태를 확인하고 다시 시도하세요.");
       }
     } finally {
-      if (catalogEpoch.current === epoch && compareRequest.current === request) {
+      if (belongsToActiveCatalogRequest(epoch, request, catalogEpoch.current, compareRequest.current)) {
         setComparing(false);
       }
     }
