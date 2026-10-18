@@ -9,6 +9,8 @@ import argparse
 import hashlib
 import io
 import json
+import math
+import sys
 import time
 import os
 import uuid
@@ -21,6 +23,11 @@ from model_integrity import model_file
 CONFIG_RELATIVE = Path("configs") / "sdxl-base-1.0"
 OUTPUT_ROOT = Path(__file__).resolve().parent.parent / "outputs"
 MAX_PNG_BYTES = 8 * 1024 * 1024
+MAX_PRIVATE_REQUEST_BYTES = 32 * 1024
+PRIVATE_REQUEST_KEYS = frozenset({
+    "schema_version", "checkpointId", "prompt", "negativePrompt",
+    "width", "height", "steps", "guidance", "seed",
+})
 
 
 @dataclass(frozen=True)
@@ -182,28 +189,99 @@ def summarize_runtime_metrics(image_path: Path, elapsed_seconds: float, cuda_mod
     return metrics
 
 
+def _unique_json_pairs(pairs):
+    """JSON usually lets the last duplicate key override the first."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate key in private generation request.")
+        result[key] = value
+    return result
+
+
+def _reject_non_json_constant(_value):
+    raise ValueError("Non-standard JSON number in private generation request.")
+
+
+def read_private_generation_request(stream=None) -> GenerationSettings:
+    """Strict bounded stdin-only protocol for a fixed, user-approved GUI run.
+
+    The request is NOT a general execution or Python object-deserialization
+    interface. Only a validated SDXL settings dictionary is returned.
+    """
+    binary = stream if stream is not None else sys.stdin.buffer
+    data = binary.read(MAX_PRIVATE_REQUEST_BYTES + 1)
+    if not isinstance(data, bytes) or not data or len(data) > MAX_PRIVATE_REQUEST_BYTES:
+        raise ValueError("Private generation request is empty or oversized.")
+    try:
+        obj = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_unique_json_pairs,
+            parse_constant=_reject_non_json_constant,
+        )
+    except (UnicodeError, json.JSONDecodeError):
+        raise ValueError("Malformed UTF-8 JSON generation request.") from None
+    if not isinstance(obj, dict) or set(obj) != PRIVATE_REQUEST_KEYS:
+        raise ValueError("Private generation request schema is invalid.")
+    if type(obj["schema_version"]) is not int or obj["schema_version"] != 1:
+        raise ValueError("Unsupported private request schema version.")
+    for name in ("checkpointId", "prompt", "negativePrompt"):
+        if type(obj[name]) is not str:
+            raise ValueError("Generation request strings have invalid types.")
+    for name in ("width", "height", "steps", "seed"):
+        if type(obj[name]) is not int:
+            raise ValueError("Generation request integer fields have invalid types.")
+    guidance = obj["guidance"]
+    if type(guidance) not in (float, int) or not math.isfinite(guidance):
+        raise ValueError("Generation guidance must be finite numeric data.")
+    return GenerationSettings(
+        checkpoint_id=obj["checkpointId"], prompt=obj["prompt"],
+        negative_prompt=obj["negativePrompt"],
+        width=obj["width"], height=obj["height"], steps=obj["steps"],
+        guidance_scale=float(guidance), seed=obj["seed"],
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="M3-1 offline SDXL preview; dry run by default.")
-    parser.add_argument("--checkpoint", required=True, help="E.g. checkpoints/model.safetensors")
-    parser.add_argument("--prompt", required=True)
-    parser.add_argument("--negative-prompt", default="")
-    parser.add_argument("--width", type=int, default=768)
-    parser.add_argument("--height", type=int, default=768)
-    parser.add_argument("--steps", type=int, default=20)
-    parser.add_argument("--guidance", type=float, default=7.0)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--checkpoint", help="E.g. checkpoints/model.safetensors")
+    parser.add_argument("--prompt")
+    parser.add_argument("--negative-prompt")
+    parser.add_argument("--width", type=int)
+    parser.add_argument("--height", type=int)
+    parser.add_argument("--steps", type=int)
+    parser.add_argument("--guidance", type=float)
+    parser.add_argument("--seed", type=int)
     parser.add_argument("--execute", action="store_true", help="Actually load checkpoint and run CUDA inference.")
     parser.add_argument("--metrics", action="store_true", help="After --execute, print wall-time, CUDA allocator peak and PNG SHA-256. Not total VRAM.")
+    parser.add_argument("--request-stdin", action="store_true",
+                        help="Read strict bounded versioned JSON settings from stdin (GUI only).")
     args = parser.parse_args(argv)
     if args.metrics and not args.execute:
         parser.error("--metrics requires --execute; preflight never loads the CUDA runtime")
+    if args.request_stdin:
+        if not (args.execute and args.metrics):
+            parser.error("--request-stdin requires --execute --metrics")
+        if any(getattr(args, field) is not None for field in (
+            "checkpoint", "prompt", "negative_prompt", "width", "height",
+            "steps", "guidance", "seed",
+        )):
+            parser.error("--request-stdin cannot be combined with model or prompt CLI values")
+    elif args.checkpoint is None or args.prompt is None:
+        parser.error("--checkpoint and --prompt are required outside private stdin mode")
     try:
-        settings = GenerationSettings(
-            checkpoint_id=args.checkpoint, prompt=args.prompt,
-            negative_prompt=args.negative_prompt, width=args.width,
-            height=args.height, steps=args.steps, guidance_scale=args.guidance,
-            seed=args.seed,
-        )
+        if args.request_stdin:
+            settings = read_private_generation_request()
+        else:
+            settings = GenerationSettings(
+                checkpoint_id=args.checkpoint, prompt=args.prompt,
+                negative_prompt=args.negative_prompt or "",
+                width=768 if args.width is None else args.width,
+                height=768 if args.height is None else args.height,
+                steps=20 if args.steps is None else args.steps,
+                guidance_scale=7.0 if args.guidance is None else args.guidance,
+                seed=42 if args.seed is None else args.seed,
+            )
         _, _, plan = prepare_generation(settings)
         if not args.execute:
             print(json.dumps({

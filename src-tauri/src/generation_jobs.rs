@@ -3,7 +3,7 @@
 //! automatic downloads, or production release execution.
 use serde::{Deserialize, Serialize};
 use std::{
-    io::Read,
+    io::{Read, Write},
     sync::mpsc,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -18,6 +18,7 @@ use tauri::{AppHandle, State};
 
 const MAX_JOB_RUNTIME: Duration = Duration::from_secs(30 * 60);
 const MAX_STDERR_TAIL: usize = 8192;
+const MAX_PRIVATE_REQUEST_BYTES: usize = 32 * 1024;
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -247,6 +248,48 @@ fn classify_terminal_failure(phase: &str, stderr: &str) -> Option<&'static str> 
     }
 }
 
+/// Keep user prompts (including leading '-' and embedded line breaks) and
+/// model identifiers OUT of Windows CreateProcess command-line arguments.
+/// Only this strict bounded JSON byte blob crosses the anonymous stdin pipe.
+fn encode_private_generation_request(request: &GenerateRequest) -> Result<Vec<u8>, String> {
+    let encoded = serde_json::to_vec(&serde_json::json!({
+        "schema_version": 1,
+        "checkpointId": &request.checkpoint_id,
+        "prompt": &request.prompt,
+        "negativePrompt": &request.negative_prompt,
+        "width": request.width,
+        "height": request.height,
+        "steps": request.steps,
+        "guidance": request.guidance,
+        "seed": request.seed,
+    })).map_err(|_| "로컬 GPU 요청 직렬화에 실패했습니다.".to_string())?;
+    if encoded.is_empty() || encoded.len() > MAX_PRIVATE_REQUEST_BYTES {
+        return Err("GPU 생성 입력이 32KiB 제한을 초과했습니다.".into());
+    }
+    Ok(encoded)
+}
+
+/// This process always runs the same checked local Python entrypoint and fixed
+/// mode flags. The browser cannot set a script, executable, shell or options.
+fn fixed_generation_command(python: PathBuf, repo: &Path) -> Command {
+    let mut command = Command::new(python);
+    command
+        .arg("-s")
+        .arg(repo.join("backend").join("generate_sdxl.py"))
+        .args(["--request-stdin", "--execute", "--metrics"])
+        .current_dir(repo)
+        .env("HF_HUB_OFFLINE", "1")
+        .env("HF_HUB_DISABLE_TELEMETRY", "1")
+        .env("PYTHONNOUSERSITE", "1")
+        .env_remove("PYTHONPATH")
+        .env_remove("PYTHONHOME")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    super::windows_process_job::prepare_command(&mut command);
+    command
+}
+
 #[tauri::command]
 pub fn local_generation_supported() -> bool {
     cfg!(all(windows, debug_assertions))
@@ -333,29 +376,9 @@ pub async fn start_local_generation(
         }
     }
 
-    let mut command = Command::new(python);
-    command
-        .arg("-s")
-        .arg(repo.join("backend").join("generate_sdxl.py"))
-        .args(["--checkpoint", &request.checkpoint_id,
-               "--prompt", &request.prompt,
-               "--negative-prompt", &request.negative_prompt,
-               "--width", &request.width.to_string(),
-               "--height", &request.height.to_string(),
-               "--steps", &request.steps.to_string(),
-               "--guidance", &request.guidance.to_string(),
-               "--seed", &request.seed.to_string(),
-               "--execute", "--metrics"])
-        .current_dir(&repo)
-        .env("HF_HUB_OFFLINE", "1")
-        .env("HF_HUB_DISABLE_TELEMETRY", "1")
-        .env("PYTHONNOUSERSITE", "1")
-        .env_remove("PYTHONPATH")
-        .env_remove("PYTHONHOME")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    super::windows_process_job::prepare_command(&mut command);
+    // Reject oversize/private request before opening a child process.
+    let private_payload = encode_private_generation_request(&request)?;
+    let mut command = fixed_generation_command(python, &repo);
     let mut child = command.spawn()
         .map_err(|_| "고정된 Python 생성 실행기를 시작하지 못했습니다. 로컬 .venv 설치를 확인하세요.".to_string())?;
     let group = match super::windows_process_job::ProcessJob::attach_and_resume(&mut child) {
@@ -367,6 +390,23 @@ pub async fn start_local_generation(
             return Err(error);
         }
     };
+    // The interpreter is in a kill-on-close Windows Job Object before any
+    // private input is sent. Write on its own thread so pipe backpressure
+    // cannot block the async Tauri command or the cancellation supervisor.
+    // The pipe is closed on drop, and Python rejects partial/invalid JSON.
+    let private_stdin = match child.stdin.take() {
+        Some(stdin) => stdin,
+        None => {
+            let _ = group.terminate();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("로컬 생성기의 비공개 입력 채널을 열 수 없습니다.".into());
+        }
+    };
+    thread::spawn(move || {
+        let mut writer = private_stdin;
+        let _ = writer.write_all(&private_payload);
+    });
     // Consume stdout concurrently with stderr to avoid pipe-buffer deadlock;
     // cap memory before the subprocess can write more than the limit.
     let stdout = child.stdout.take().ok_or("Cannot capture inference metrics")?;
@@ -538,6 +578,34 @@ mod tests {
             width:768,height:768,steps:20,guidance:7.0,seed:42,confirmed:true,
             acknowledge_vram_risk:false }
     }
+    #[test] fn private_generation_command_has_no_prompt_or_checkpoint_argv() {
+        let mut r = request();
+        r.prompt = "-negative-leading prompt with spaces 😀".into();
+        r.negative_prompt = "C:\\Users\\private\\sensitive negative".into();
+        let bytes = encode_private_generation_request(&r).unwrap();
+        let decoded: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(decoded["schema_version"], 1);
+        assert_eq!(decoded["prompt"], r.prompt);
+        assert_eq!(decoded["negativePrompt"], r.negative_prompt);
+        let repo = std::env::temp_dir().join("aiimage-fixture");
+        let command = fixed_generation_command(
+            repo.join(".venv/Scripts/python.exe"), &repo
+        );
+        let args = command.get_args().map(|v| v.to_string_lossy().to_string())
+            .collect::<Vec<_>>().join(" ");
+        assert!(args.contains("--request-stdin --execute --metrics"));
+        assert!(!args.contains("negative-leading"));
+        assert!(!args.contains("sensitive"));
+        assert!(!args.contains("checkpoints/a.safetensors"));
+        assert!(!args.contains("--prompt"));
+    }
+
+    #[test] fn oversized_private_payload_is_rejected_without_spawn() {
+        let mut r = request();
+        r.prompt = "한".repeat(13_000);
+        assert!(encode_private_generation_request(&r).is_err());
+    }
+
     #[test] fn validates_supported_inputs_and_explicit_confirmation() {
         assert!(validate_request(&request()).is_ok());
         let mut bad = request();bad.confirmed=false;
