@@ -221,3 +221,119 @@ def test_cli_execute_without_double_consent_exits_before_cuda(monkeypatch):
         main(["--checkpoint", "checkpoints/mock.safetensors",
               "--prompt", "Private prompt", "--execute"])
     assert exc.value.code == 2
+
+
+def test_vram_safe_8gib_trial_is_allowed_without_override(tmp_path):
+    fixture_model(tmp_path)
+    report = run_acceptance(
+        settings(), model_root=tmp_path, inspect=True,
+        gpu_inspector=gpu_report,
+    )
+    assert report["status"] == "gpu_probe_only"
+    assert report["memory_policy"]["status"] == "conservative_trial_allowed"
+    assert report["memory_policy"]["reasons"] == []
+    assert report["generation"]["status"] == "not_run"
+
+
+def test_low_free_vram_blocks_before_importing_or_running_any_model(tmp_path):
+    fixture_model(tmp_path)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Torch or inference must not be called if VRAM is low")
+    reading = gpu_report()
+    reading["gpu"]["free_vram_bytes_at_check"] = 3 * 1024**3
+    report = run_acceptance(
+        settings(), model_root=tmp_path,
+        execute=True, confirmed=True, gpu_inspector=lambda: reading,
+        torch_loader=forbidden, runner=forbidden,
+    )
+    assert report["status"] == "vram_safety_blocked"
+    assert "free_vram_under_4gib" in report["memory_policy"]["reasons"]
+    assert report["generation"]["status"] == "not_run"
+
+
+def test_high_resolution_8gib_trial_is_blocked_by_default(tmp_path):
+    fixture_model(tmp_path)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("High resolution must be blocked before model loads")
+    report = run_acceptance(
+        GenerationSettings(
+            checkpoint_id="checkpoints/mock.safetensors",
+            prompt="High resolution fixture", width=1024, height=1024, steps=15,
+        ),
+        model_root=tmp_path, execute=True, confirmed=True,
+        gpu_inspector=gpu_report, torch_loader=forbidden, runner=forbidden,
+    )
+    assert report["status"] == "vram_safety_blocked"
+    assert "high_resolution_on_8gib" in report["memory_policy"]["reasons"]
+
+
+def test_additional_acknowledgement_allows_attempt_but_not_success_claim(tmp_path):
+    fixture_model(tmp_path)
+    reading = gpu_report()
+    reading["gpu"]["free_vram_bytes_at_check"] = 2 * 1024**3
+    def fake_oom(*args, **kwargs):
+        raise RuntimeError("CUDA out of memory")
+    report = run_acceptance(
+        settings(), model_root=tmp_path, execute=True, confirmed=True,
+        acknowledge_vram_risk=True,
+        gpu_inspector=lambda: reading,
+        torch_loader=lambda _: SimpleNamespace(cuda=MockCuda()),
+        runner=fake_oom,
+    )
+    assert report["status"] == "generation_failed"
+    assert report["memory_policy"]["status"] == "allowed_with_acknowledged_risk"
+    assert report["memory_policy"]["acknowledged"] is True
+    assert report["generation"]["error_category"] == "cuda_out_of_memory"
+    assert any("명시적으로" in w for w in report["warnings"])
+
+
+@pytest.mark.parametrize("bad_total,bad_free", [
+    (8 * 1024**3, 9 * 1024**3),
+    (8 * 1024**3, -1),
+    (-1, 0),
+    (0, 0),
+    ("8589934592", 1),
+    (True, 1),
+])
+def test_invalid_gpu_memory_values_never_authorize_inference(tmp_path, bad_total, bad_free):
+    fixture_model(tmp_path)
+    reading = gpu_report()
+    reading["gpu"]["total_vram_bytes"] = bad_total
+    reading["gpu"]["free_vram_bytes_at_check"] = bad_free
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Invalid telemetry must not load a model")
+    report = run_acceptance(
+        settings(), model_root=tmp_path, execute=True, confirmed=True,
+        acknowledge_vram_risk=True,
+        gpu_inspector=lambda: reading, torch_loader=forbidden, runner=forbidden,
+    )
+    assert report["status"] == "gpu_not_ready"
+    assert report["gpu"]["status"] == "cuda_probe_error"
+
+
+def test_override_never_bypasses_missing_cuda(tmp_path):
+    fixture_model(tmp_path)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Override must not bypass missing CUDA")
+    report = run_acceptance(
+        settings(), model_root=tmp_path, execute=True, confirmed=True,
+        acknowledge_vram_risk=True,
+        gpu_inspector=lambda: {"status": "cuda_unavailable"},
+        torch_loader=forbidden,
+    )
+    assert report["status"] == "gpu_not_ready"
+
+
+def test_cli_vram_override_without_double_consent_rejected(monkeypatch):
+    import hardware_acceptance
+    def forbidden(*args, **kwargs):
+        raise AssertionError("VRAM acknowledgement bypassed the double consent gate")
+    monkeypatch.setattr(hardware_acceptance, "run_acceptance", forbidden)
+    with pytest.raises(SystemExit) as err:
+        main(["--checkpoint", "checkpoints/mock.safetensors",
+              "--acknowledge-vram-risk"])
+    assert err.value.code == 2
+    with pytest.raises(SystemExit) as err:
+        main(["--checkpoint", "checkpoints/mock.safetensors",
+              "--prompt", "Fixture", "--execute", "--acknowledge-vram-risk"])
+    assert err.value.code == 2
