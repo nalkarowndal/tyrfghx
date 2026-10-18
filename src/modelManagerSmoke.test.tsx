@@ -51,6 +51,28 @@ describe("M3-25 model manager render smoke", () => {
     expect(html).toContain("브라우저에서는 파일 가져오기 버튼을 사용할 수 없습니다.");
   });
 
+  it("hides previously cached model cards and verification actions on catalog failure", () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    const html = renderToStaticMarkup(
+      <ModelLibrary items={fixtures} isLoading={false}
+        error="안전한 목록 오류" onRefresh={() => {}} />,
+    );
+    expect(html).toContain("모델 목록 오류: 안전한 목록 오류");
+    expect(html).toContain("목록 새로고침");
+    expect(html).not.toContain("base.safetensors");
+    expect(html).not.toContain("style.safetensors");
+    expect(html).not.toContain("SHA-256 현재 파일 재검증:");
+  });
+
+  it("hides model actions while a refresh is in progress", () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    const html = renderToStaticMarkup(
+      <ModelLibrary items={fixtures} isLoading={true} error="" onRefresh={() => {}} />,
+    );
+    expect(html).toContain("로컬 모델 파일을 확인하는 중입니다.");
+    expect(html).not.toContain("SHA-256 현재 파일 재검증:");
+  });
+
   it("renders an error without treating it as a successful verification", () => {
     vi.mocked(isTauri).mockReturnValue(true);
     const html = renderToStaticMarkup(
