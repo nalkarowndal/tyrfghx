@@ -1,7 +1,7 @@
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { runWindowsUiSmoke, requestWebDriver, waitForDriver, allocateDriverPorts } from "./windows-ui-e2e.mjs";
+import { runWindowsUiSmoke, requestWebDriver, waitForDriver, allocateDriverPorts, safeWebDriverErrorCode, describeNativeSessionProblem } from "./windows-ui-e2e.mjs";
 
 const ELEMENT = "element-6066-11e4-a52e-4f735466cecf";
 const makeResponse = (reply, status = 200) => ({
@@ -11,7 +11,7 @@ const makeResponse = (reply, status = 200) => ({
 async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChecked = false,
   vramChecked = false, missingConsent = false,
   catalogErrorOnce = false, staleCardOnError = false, nativePolicy = "disabled",
-  sessionDelayMillis = 0 } = {}) {
+  sessionDelayMillis = 0, sessionError = null } = {}) {
   let screen = "generation";
   let preflight = false;
   let closed = false;
@@ -29,7 +29,8 @@ async function fakeDriver({ gpuEnabled = false, showPreflight = true, consentChe
       if (sessionDelayMillis > 0) await new Promise(done => setTimeout(done, sessionDelayMillis));
       assert.equal(payload.capabilities.alwaysMatch["tauri:options"].application, "C:\\fake\\aiimage.exe");
       assert.equal(payload.capabilities.alwaysMatch.browserName, "wry");
-      response = makeResponse({ sessionId: "a1234567", capabilities: {} });
+      response = sessionError ? makeResponse({ error: sessionError }, 500)
+        : makeResponse({ sessionId: "a1234567", capabilities: {} });
     } else if (url === "/session/a1234567" && req.method === "DELETE") {
       closed = true; response = makeResponse(null);
     } else if (url === "/session/a1234567/elements" && req.method === "POST") {
@@ -247,5 +248,31 @@ test("M3-31 allows bounded native GUI session startup longer than ordinary DOM c
     const checks = await runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe");
     assert.equal(checks.native_release_policy, "attested_disabled");
     assert.equal(server.closed, true);
+  } finally { await server.close(); }
+});
+
+test("M3-32: native session creation failure gives safe, actionable category", async () => {
+  const server = await fakeDriver({ sessionError: "session not created" });
+  try {
+    await assert.rejects(
+      runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe"),
+      /native_session_not_created: inspect isolated release startup probe and WebView2 attach/,
+    );
+  } finally { await server.close(); }
+});
+
+test("M3-32: sanitize server-supplied path and stack in protocol error field", async () => {
+  const privateMessage = "C:\\Users\\Private\\models\\secret.safetensors";
+  const server = await fakeDriver({ sessionError: privateMessage });
+  try {
+    await assert.rejects(
+      runWindowsUiSmoke(server.url, "C:\\fake\\aiimage.exe"),
+      error => error.message.includes("protocol_error")
+        && !error.message.includes("Private")
+        && !error.message.includes("secret.safetensors"),
+    );
+    assert.equal(safeWebDriverErrorCode(privateMessage), "protocol_error");
+    assert.equal(safeWebDriverErrorCode("unknown command"), "unknown command");
+    assert.equal(describeNativeSessionProblem("session not created").startsWith("native_session_not_created"), true);
   } finally { await server.close(); }
 });

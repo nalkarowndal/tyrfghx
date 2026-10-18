@@ -55,6 +55,9 @@ jobs:
       - name: Verify Windows dev launcher without opening a GUI or GPU
         shell: pwsh
         run: ./scripts/test-windows-dev.ps1
+      - name: Validate Windows native release probe path guard (no GUI)
+        shell: pwsh
+        run: ./scripts/windows-release-window-probe.ps1 -Application (Join-Path $PWD.Path "src-tauri/target/release/aiimage.exe") -ValidateOnly
       - name: Verify Rust toolchain
         run: rustc --version
       - name: Build and test native import/catalog/hash/generation flows
