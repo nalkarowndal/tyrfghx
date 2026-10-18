@@ -34,7 +34,7 @@ fn parse_model_id(id: &str) -> Result<(&str, &str), String> {
     Ok((category, filename))
 }
 
-fn verify_at_root(root: &Path, model_id: &str) -> Result<HashCheck, String> {
+pub(crate) fn verify_at_root(root: &Path, model_id: &str) -> Result<HashCheck, String> {
     let (category, filename) = parse_model_id(model_id)?;
     if root.is_symlink() || !root.is_dir() {
         return Err("모델 저장 폴더가 없거나 안전하지 않습니다.".into());

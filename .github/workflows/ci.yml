@@ -55,5 +55,5 @@ jobs:
         run: ./scripts/test-windows-dev.ps1
       - name: Verify Rust toolchain
         run: rustc --version
-      - name: Build and test Tauri native import code
+      - name: Build and test native import/catalog/hash/generation flows
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib

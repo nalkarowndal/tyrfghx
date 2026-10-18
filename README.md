@@ -3,13 +3,22 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-24 (opt-in native model SHA-256 recheck).**
+> **Current milestone: M3-25 (synthetic native model-flow integration QA and owner Windows UI checklist).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
 > release builds and browsers still cannot start GPU jobs. Packaged backend
 > integration, driver/device validation, and native GUI testing are outstanding.
+
+## M3-25: local model import → catalog → SHA-256 integration QA
+
+Windows Rust CI now runs a synthetic on-disk flow across native import, catalog,
+recorded SHA-256 recheck and same-size tamper detection; the Python backend can
+generate a tiny **NOT A REAL MODEL** UI fixture without downloading weights.
+React SSR smoke tests check Tauri-only verification controls. These automated
+checks do **not** prove actual Windows GUI interaction or GPU success. A manual
+operator checklist remains required. See [M3-25 model flow QA](docs/M3_NATIVE_MODEL_FLOW_QA.md).
 
 ## M3-24: explicitly recheck a model's SHA-256 from the desktop
 
