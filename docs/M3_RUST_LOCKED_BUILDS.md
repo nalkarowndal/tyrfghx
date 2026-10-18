@@ -39,21 +39,31 @@ without a maintainer's explicit `generate-rust-lockfile` label. It never
 executes application code, launches a GUI, starts GPU inference or reads
 private model weights.
 
-If the repository forbids GitHub Actions writes to a source branch, the
-workflow retains the generated lockfile as a short-lived review artifact.
-Do **not** claim a lockfile was committed until GitHub actually confirms it.
+**Verified result:** GitHub Actions [run #39138997439](https://github.com/nalkarowndal/tyrfghx/actions/runs/39138997439)
+successfully generated the lockfile on 2026-10-18, verified both metadata
+graphs, and committed `src-tauri/Cargo.lock` on the M3-36 branch at commit
+`758e6be0075aff9efb6f890b184a78f8576972f0`. Its contents were
+read back from the remote branch and start with Cargo's generated version 4
+header, containing the `aiimage` package and embedded plugin.
+The short-lived fallback artifact is also available on the workflow run.
+
+If a future repository policy forbids GitHub Actions writes, the workflow
+will leave a review artifact rather than claiming that the lockfile committed.
 
 ## After the lockfile is committed
 
-Regular Windows Rust CI should use:
+Regular Windows Rust CI **now runs**:
 
 ```powershell
+cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --locked --features e2e-webdriver --no-deps
 cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
 ```
 
-Explicitly authorized Windows GUI jobs should first check the lockfile with
-`cargo metadata --locked` including the `e2e-webdriver` feature, and
-fail if either the normal or feature-gated build changes Cargo.lock.
+The opt-in Windows GUI workflow now checks both full dependency graphs via
+`cargo metadata --locked` before compiling, and rejects any Cargo.lock
+change after the normal and feature-gated release builds. This protects
+the reviewed lockfile even when launched through the Tauri CLI instead
+of calling Cargo build directly.
 
 The normal production binary must still exclude the embedded HTTP WebDriver
 feature. The special test-only executable must still require both runtime
