@@ -1,5 +1,7 @@
 name: Windows native UI E2E (opt-in)
 on:
+  pull_request:
+    types: [opened, synchronize, labeled]
   workflow_dispatch:
     inputs:
       confirm_release_only:
@@ -13,7 +15,7 @@ permissions:
 
 jobs:
   native-windows-ui:
-    if: ${{ inputs.confirm_release_only == true }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.confirm_release_only == true) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'run-native-ui-e2e')) }}
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
