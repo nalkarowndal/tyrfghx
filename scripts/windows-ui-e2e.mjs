@@ -43,17 +43,36 @@ export async function allocateDriverPorts() {
 const ELEM = "element-6066-11e4-a52e-4f735466cecf";
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
-export async function requestWebDriver(base, method, route, body) {
-  const response = await fetch(base + route, {
-    method,
-    headers: { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(12_000),
-  });
-  const payload = await response.json();
+export async function requestWebDriver(base, method, route, body, timeoutMillis = 12_000) {
+  // Report only a safe request category; never print a path, session ID,
+  // browser stack, private prompt, returned DOM or full WebDriver payload.
+  const category = route === "/status" ? "status"
+    : route === "/session" ? "session"
+    : route.startsWith("/session/") ? "command" : "other";
+  let response;
+  try {
+    response = await fetch(base + route, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMillis),
+    });
+  } catch (error) {
+    const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
+    throw new Error(timedOut
+      ? `WebDriver ${category} request timed out after ${timeoutMillis}ms`
+      : `WebDriver ${category} connection failed`);
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error(`WebDriver ${category} returned malformed JSON`);
+  }
   if (!response.ok || payload?.value?.error) {
-    const code = payload?.value?.error ?? "webdriver_request_failed";
-    throw new Error(`WebDriver ${method} ${route}: ${String(code).slice(0, 80)}`);
+    const code = typeof payload?.value?.error === "string"
+      ? payload.value.error.slice(0, 64) : "protocol_error";
+    throw new Error(`WebDriver ${category} rejected request: ${code}`);
   }
   return payload.value;
 }
@@ -63,7 +82,7 @@ export async function waitForDriver(base, maxMillis = 30_000, driverFailed = () 
   while (Date.now() < deadline) {
     if (driverFailed()) throw new Error("Local Tauri WebDriver process exited before readiness.");
     try {
-      const status = await requestWebDriver(base, "GET", "/status");
+      const status = await requestWebDriver(base, "GET", "/status", undefined, 4_000);
       if (status?.ready !== false) return;
     } catch { /* expected before driver binds its local socket */ }
     await sleep(400);
@@ -72,9 +91,11 @@ export async function waitForDriver(base, maxMillis = 30_000, driverFailed = () 
 }
 
 export async function runWindowsUiSmoke(base, application) {
+  // Launching a native Windows WebView2 process often exceeds a typical
+  // fast DOM-command timeout; keep startup bounded but distinct from it.
   const session = await requestWebDriver(base, "POST", "/session", {
     capabilities: { alwaysMatch: { browserName: "wry", "tauri:options": { application } } },
-  });
+  }, 90_000);
   const sid = session?.sessionId;
   assert.match(sid ?? "", /^[a-zA-Z0-9-]{8,128}$/, "No valid native GUI session");
   const route = path => `/session/${sid}${path}`;
