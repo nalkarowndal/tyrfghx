@@ -294,6 +294,6 @@ mod tests {
     fn cannot_execute_without_fixed_python_environment() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(trusted_python(tmp.path()).is_err());
-        assert!(run_probe(tmp.path().to_path_buf()).is_err());
+        assert!(run_probe(tmp.path().to_path_buf(), Arc::new(AtomicBool::new(false))).is_err());
     }
 }
