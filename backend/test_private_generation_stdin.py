@@ -37,6 +37,9 @@ def test_utf8_private_request_preserves_leading_dash_and_newlines():
     b"", b"garbage", b"[]", b"{}", b"\xff", b" " * (32 * 1024 + 1),
     b'{"schema_version":1,"schema_version":1}',
     b'{"a": NaN}', b'{"a": Infinity}',
+], ids=[
+    "empty", "invalid_text", "array", "object", "invalid_utf8",
+    "oversize", "duplicate_key", "nan", "infinity",
 ])
 def test_rejects_malformed_duplicate_and_oversized_private_data(value):
     with pytest.raises(ValueError):
