@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import GpuDiagnosticsPanel from "./GpuDiagnosticsPanel";
+import GenerationGalleryInspector from "./GenerationGalleryInspector";
 import { describeGenerationFailure, explainGenerationStartError } from "./generationRecovery";
 import VramPreflightPanel from "./VramPreflightPanel";
 import type { ModelRecord } from "./api";
@@ -120,7 +121,7 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
   const canRun = desktop && runnerSupported && assessment.ok && consent && jobStatusLoaded && !jobBusy && !jobLoading;
   return <div className="generation-layout">
     <section className="generation-panel" aria-label="이미지 생성 설정">
-      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-14 · 생성 오류 안내</span></div>
+      <div className="generation-heading"><h2>이미지 생성</h2><span className="generation-tag">M3-21 · 이미지 상세 검수</span></div>
       <p className="muted">Windows Tauri 개발판에서는 명시적으로 승인한 한 건의 로컬 SDXL 추론을 시작하거나 중지할 수 있습니다. 배포판과 웹 브라우저에서는 비활성화됩니다.</p>
       <GpuDiagnosticsPanel supported={runnerSupported} busy={jobBusy || jobLoading} />
       <VramPreflightPanel
@@ -220,16 +221,11 @@ export default function GenerationWorkspace({ models, loadingModels, modelsError
           {galleryLoading ? "읽는 중..." : "이미지 새로고침"}
         </button>
       </div>
-      <p className="muted">CLI 또는 Windows Tauri 개발판에서 생성된 PNG 중 최신 4개를 읽습니다. 이 갤러리는 실제 작업 진행률을 표시하지 않습니다.</p>
+      <p className="muted">CLI 또는 Windows Tauri 개발판에서 생성된 PNG 중 최신 4개를 읽습니다. 이미지를 선택하면 50~200% 확대·축소와 앞뒤 탐색이 가능합니다. 실제 작업 진행률이나 시각적 품질 점수는 표시하지 않습니다.</p>
       {!desktop && <p className="empty-models">미리보기는 Tauri 데스크톱에서만 지원합니다.</p>}
       {galleryError && <p role="alert" className="model-error">결과 읽기 실패: {galleryError}</p>}
       {desktop && !galleryLoading && !galleryError && previews.length === 0 && <p className="empty-models">표시할 로컬 생성 이미지가 없습니다.</p>}
-      {desktop && <div className="generation-preview-grid">
-        {previews.map(x => <figure key={x.id}>
-          <img src={x.image_src} alt={"로컬 생성 결과 " + x.id} loading="lazy" />
-          <figcaption>{x.id} · {(x.size_bytes / 1024).toFixed(0)} KiB</figcaption>
-        </figure>)}
-      </div>}
+      {desktop && <GenerationGalleryInspector previews={previews} />}
       <div className="model-help"><strong>실제 이미지 생성 방법</strong>
         <p>Windows 개발판 실행기에 필요한 .venv 환경이 없으면 로컬 Python 터미널에서 <code>python backend/generate_sdxl.py --checkpoint "checkpoints/파일명.safetensors" --prompt "원하는 이미지" --execute</code> 명령을 사용합니다.</p>
         <p>CUDA PyTorch, Diffusers 및 로컬 SDXL 설정 파일이 필요합니다. CLI 생성이 성공하면 이 화면에서 새로고침하세요.</p>
