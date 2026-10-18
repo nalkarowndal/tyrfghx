@@ -4,6 +4,6 @@
     "active": true,
     "targets": ["nsis"],
     "resources": { "backend-dist/aiimage-backend/": "backend/" },
-    "windows": { "nsis": { "installMode": "currentUser" } }
+    "windows": { "nsis": { "installMode": "currentUser", "installerHooks": "nsis/preserve-data.nsh" } }
   }
 }

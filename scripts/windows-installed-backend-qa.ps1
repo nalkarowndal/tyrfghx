@@ -9,6 +9,9 @@ if (Test-Path -LiteralPath $data) { throw 'installed_qa: existing_user_data_refu
 $sentinel = Join-Path $data 'models/qa-preserve.txt'
 New-Item -ItemType Directory -Path (Split-Path $sentinel) | Out-Null
 [IO.File]::WriteAllText($sentinel, 'synthetic preservation fixture')
+$outputSentinel = Join-Path $data 'outputs/qa-preserve.txt'
+New-Item -ItemType Directory -Path (Split-Path $outputSentinel) | Out-Null
+[IO.File]::WriteAllText($outputSentinel, 'synthetic output fixture')
 $installer = @(Get-ChildItem (Join-Path $repo 'src-tauri/target/release/bundle/nsis') -Filter '*setup.exe')
 if ($installer.Count -ne 1) { throw 'installed_qa: installer_count' }
 $process = $null
@@ -61,13 +64,46 @@ try {
   }
   $uninstaller = Join-Path $install 'uninstall.exe'
   if (-not (Test-Path -LiteralPath $uninstaller)) { throw 'installed_qa: uninstaller_missing' }
-  $remove = Start-Process -FilePath $uninstaller -ArgumentList '/S' -PassThru
-  if (-not $remove.WaitForExit(60000) -or $remove.ExitCode -ne 0) { throw 'installed_qa: uninstall_failed' }
+  # _?= keeps the uninstaller in this process instead of a temporary self-copy.
+  # Select stock Tauri's destructive checkbox to prove our preservation hook wins.
+  $remove = Start-Process -FilePath $uninstaller -ArgumentList "_?=$install" -PassThru
+  $until = [DateTime]::UtcNow.AddSeconds(20)
+  $checkbox = $null
+  while ([DateTime]::UtcNow -lt $until) {
+    Start-Sleep -Milliseconds 250
+    $remove.Refresh()
+    if ($remove.HasExited) { throw 'installed_qa: uninstaller_exited_early' }
+    if ($remove.MainWindowHandle -eq [IntPtr]::Zero) { continue }
+    $dialog = [System.Windows.Automation.AutomationElement]::FromHandle($remove.MainWindowHandle)
+    $checkCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::CheckBox)
+    $checkbox = $dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $checkCondition)
+    if ($null -ne $checkbox) { break }
+  }
+  if ($null -eq $checkbox) { throw 'installed_qa: data_checkbox_not_observed' }
+  $toggle = $checkbox.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+  if ($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { $toggle.Toggle() }
+  if ($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { throw 'installed_qa: checkbox_not_selected' }
+  $buttonCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1')
+  $button = $dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $buttonCondition)
+  if ($null -eq $button) { throw 'installed_qa: uninstall_button_missing' }
+  $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
   $until = [DateTime]::UtcNow.AddSeconds(20)
   while ((Test-Path -LiteralPath $application) -and [DateTime]::UtcNow -lt $until) { Start-Sleep -Milliseconds 250 }
   if (Test-Path -LiteralPath $application) { throw 'installed_qa: app_remained_after_uninstall' }
   if ([IO.File]::ReadAllText($sentinel) -ne 'synthetic preservation fixture') { throw 'installed_qa: user_data_changed' }
-  Write-Output 'installed_qa: install_uninstall_model_data_preserved'
+  if ([IO.File]::ReadAllText($outputSentinel) -ne 'synthetic output fixture') { throw 'installed_qa: output_data_changed' }
+  # Close the completed uninstall page after verifying payload removal.
+  $until = [DateTime]::UtcNow.AddSeconds(20)
+  while (-not $remove.HasExited -and [DateTime]::UtcNow -lt $until) {
+    try {
+      $button = $dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $buttonCondition)
+      if ($null -ne $button -and $button.Current.IsEnabled) { $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+    } catch { }
+    Start-Sleep -Milliseconds 250
+    $remove.Refresh()
+  }
+  if (-not $remove.HasExited -or $remove.ExitCode -ne 0) { throw 'installed_qa: uninstall_failed' }
+  Write-Output 'installed_qa: interactive_uninstall_with_delete_checkbox_preserved_models_and_outputs'
 } finally {
   if ($null -ne $process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force }
   if ($null -ne $backendId) { Stop-Process -Id $backendId -Force -ErrorAction SilentlyContinue }

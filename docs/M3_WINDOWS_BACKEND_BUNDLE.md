@@ -31,14 +31,19 @@ The child's stdin is its lifetime lease: EOF requests graceful shutdown. Rust
 waits a bounded time, then terminates/verifies the whole Windows job. App crash
 closes the kill-on-close Job Object. Crashes/startup timeouts latch an error;
 explicit retry starts a fresh process/token only after cleanup is verified.
-A Windows named mutex keyed by canonical model root prevents two app instances
-from owning API processes for the same data. Do not attach to a preexisting port
+A Windows session-local named mutex keyed by canonical model root prevents two app instances
+in the same interactive session from owning API processes for the same data. Separate
+Windows login sessions may run independent read-only APIs; cross-session exclusion
+is not claimed. Do not attach to a preexisting port
 or kill an unowned PID. A second app reports a recoverable startup failure.
 
 Pass the existing native model root over stdin; never derive user storage from
 the installation folder. No migration, model download, inference, uninstall
 cleanup of application data, or writes to model files. Installer payload stays
-under the install directory; existing user data remains outside it.
+under the install directory; existing user data remains outside it. The backend
+installer's pre-uninstall hook forces preservation even when the stock Tauri
+"Delete app data" checkbox is selected. Data removal is deliberately manual.
+The unchanged M3-38 shell-only overlay does not carry this new hook.
 
 ## QA and limitations
 
@@ -47,9 +52,36 @@ Origin/Host/peer restrictions, occupied ports, stdin EOF, invalid startup,
 duplicate ownership, crash/restart, token rotation and data preservation.
 Test the frozen executable and real Rust manager on Windows, build the NSIS
 payload, validate PE/SHA-256, and check Cargo.lock/production WebDriver isolation.
-No public artifacts, releases, signing or main merge. Installer execution and
-clean-machine/SmartScreen/UAC/real GPU validation must be reported separately
-from build/process QA. The default shell installer remains available unchanged.
+No public artifacts, releases, signing or main merge. The new installer QA is
+restricted to disposable GitHub Windows runners, refuses existing app data,
+uses only synthetic model/output sentinels, and exercises installed production
+GUI status, normal close, parent-only kill and interactive uninstall with the
+delete-data checkbox selected. Clean-machine/SmartScreen/UAC/real GPU validation
+must be reported separately from hosted CI. The default shell installer remains
+available unchanged.
+
+## Build and run
+
+On Windows x64, Node 22+, Python 3.12, Rust/C++ build tools and WebView2:
+
+```powershell
+npm ci
+./scripts/build-windows-backend.ps1
+npm run tauri -- build --config src-tauri/tauri.backend-qa.conf.json --bundles nsis
+```
+
+The build script requires a fresh `.backend-build` directory. Its isolated venv
+installs all runtime/build dependencies from `backend/requirements-bundle.lock`
+with wheel SHA-256 checks. Target Python 3.12 x64 is intentional. The installed
+app uses `backend/aiimage-backend.exe` and `_internal` beside it; a separately
+installed Python is unnecessary. `bundle-manifest.json` records every payload
+file and is verified against the installed copy in CI. These hashes verify
+build contents, not publisher authenticity; signing remains future work.
+
+The first desktop status request starts the API, status is rechecked every 15s,
+and a failure displays a safe error and an explicit restart action. No inference
+is retried. Two windows in the same Windows session share no credentials: the
+second owner fails safely until the first exits, then its restart can succeed.
 
 Official references checked through Context7 and Exa:
 - https://v2.tauri.app/develop/sidecar/

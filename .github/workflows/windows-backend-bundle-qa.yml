@@ -35,9 +35,12 @@ jobs:
         shell: pwsh
         run: |
           $env:AIIMAGE_TEST_BACKEND = Join-Path $PWD 'src-tauri/backend-dist/aiimage-backend/aiimage-backend.exe'
+          cargo build --manifest-path src-tauri/Cargo.toml --example stalled_backend --locked
+          if ($LASTEXITCODE -ne 0) { throw 'stalled_fixture_build_failed' }
+          $env:AIIMAGE_TEST_STALLED_BACKEND = Join-Path $PWD 'src-tauri/target/debug/examples/stalled_backend.exe'
           cargo test --manifest-path src-tauri/Cargo.toml --lib --locked --features bundled-backend
           if ($LASTEXITCODE -ne 0) { throw 'rust_suite_failed' }
-          cargo test --manifest-path src-tauri/Cargo.toml --lib --locked --features bundled-backend backend_runtime::tests::frozen_backend_lifecycle -- --ignored --exact
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --locked --features bundled-backend backend_runtime::tests -- --ignored
           if ($LASTEXITCODE -ne 0) { throw 'rust_frozen_lifecycle_failed' }
       - name: Verify production dependency isolation
         shell: pwsh

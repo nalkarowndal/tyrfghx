@@ -39,7 +39,17 @@
 - Repository recovered through GitHub connector because executor proxy cannot connect.
   All 146 files reproduce upstream tree `ea067761b700fea5c3d2c17f41cc8a9803b1aa12` exactly.
   Original commit object reconstructed and verified, shallow history rooted at M3-38.
-- Local npm offline install failed (missing yallist cache); pip cannot install pytest;
-  Rust toolchain absent. Use available Python runtime for new unittest checks and
-  GitHub Actions for complete suites and Windows compilation. These are environment
-  limitations, not passing tests.
+- Initial npm/pip and loopback failures were sandbox socket restrictions. Explicit
+  network permission fixed them. Local Python suite 185 passed/1 Windows skip;
+  frontend build and 77 tests passed; Node harness 22 passed; npm audit clean.
+  Rust toolchain is absent locally, so Windows Actions is the compile/test authority.
+- First Windows run froze the API and passed process smoke, then found E0597 in
+  shutdown's final if-let temporary. Added a semicolon so the lock result drops
+  before the borrowed Tauri State. Subsequent run must verify the fix.
+- Independent reviewer found blocking bootstrap write, stale refresh/restart UI
+  race and stock NSIS delete-data behavior. Fixed with a shared startup deadline,
+  revision-controlled status loader, and pre-uninstall preserve-data hook. Added
+  stalled-child, delayed-response and interactive-uninstall regression checks.
+- Ruling: mutex ownership is per Windows login session, documented explicitly;
+  separate sessions may own independent read-only APIs. Global singleton is not
+  required for a read-only service; mutable/inference endpoints would need review.

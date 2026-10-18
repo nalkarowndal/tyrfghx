@@ -131,15 +131,20 @@ impl BackendManager {
                 return Err("backend_job_failed".into());
             }
         };
-        let input = child.stdin.take();
+        let mut input = child.stdin.take().ok_or("backend_start_failed")?;
         let output = child.stdout.take().ok_or("backend_start_failed")?;
         let pid = child.id();
-        self.session = Some(Session { child, input, job, ready: None });
+        self.session = Some(Session { child, input: None, job, ready: None });
         let session = self.session.as_mut().ok_or("backend_start_failed")?;
         let bootstrap = json!({"protocol": 1, "model_root": root}).to_string() + "\n";
         if bootstrap.len() > 8192 { return Err("backend_path_too_long".into()); }
-        session.input.as_mut().ok_or("backend_start_failed")?
-            .write_all(bootstrap.as_bytes()).map_err(|_| "backend_start_failed")?;
+        let deadline = Instant::now() + START_TIMEOUT;
+        let (input_send, input_receive) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let result = input.write_all(bootstrap.as_bytes())
+                .map(|_| input).map_err(|_| "backend_start_failed".to_owned());
+            let _ = input_send.send(result);
+        });
         let (send, receive) = mpsc::sync_channel(1);
         thread::spawn(move || {
             let mut line = Vec::new();
@@ -148,7 +153,10 @@ impl BackendManager {
                 .and_then(|_| parse_ready(&line, pid));
             let _ = send.send(result);
         });
-        session.ready = Some(receive.recv_timeout(START_TIMEOUT).map_err(|_| "backend_start_timeout")??);
+        session.input = Some(input_receive.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .map_err(|_| "backend_start_timeout")??);
+        session.ready = Some(receive.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .map_err(|_| "backend_start_timeout")??);
         Ok(())
     }
 
@@ -209,7 +217,7 @@ pub async fn restart_backend(app: tauri::AppHandle) -> Result<Value, String> { o
 
 pub fn shutdown(app: &tauri::AppHandle) {
     let state = app.state::<BackendState>();
-    if let Ok(mut manager) = state.0.lock() { let _ = manager.stop(); }
+    if let Ok(mut manager) = state.0.lock() { let _ = manager.stop(); };
 }
 
 #[cfg(test)]
@@ -275,5 +283,22 @@ mod tests {
         drop(duplicate);
         assert_eq!(std::fs::read(&sentinel).unwrap(), b"user data");
         assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires the disposable Rust process fixture built by Windows QA"]
+    fn stalled_bootstrap_is_bounded_and_owned_process_is_reaped() {
+        let exe = std::path::PathBuf::from(std::env::var_os("AIIMAGE_TEST_STALLED_BACKEND").expect("QA fixture required"));
+        let temp = tempfile::tempdir().unwrap();
+        // Larger than the anonymous Windows pipe buffer; child deliberately never reads it.
+        // This path is never opened or created.
+        let root = temp.path().join("a".repeat(6000));
+        let mut manager = BackendManager::default();
+        let started = Instant::now();
+        assert_eq!(manager.status(&exe, &root).unwrap_err(), "backend_start_timeout");
+        assert!(started.elapsed() < START_TIMEOUT + STOP_TIMEOUT * 3);
+        assert!(manager.session.is_none());
+        assert!(manager.failed);
     }
 }
