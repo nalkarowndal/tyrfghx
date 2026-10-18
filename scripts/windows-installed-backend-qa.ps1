@@ -25,6 +25,33 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'installed_qa: payload_verification_failed' }
   Add-Type -AssemblyName UIAutomationClient
   Add-Type -AssemblyName UIAutomationTypes
+  # NSIS creates its checkbox dynamically with CreateWindowEx. Its Win32 style
+  # is authoritative even when the UI Automation provider omits that control.
+  Add-Type @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class AiimageNsisControls {
+  public delegate bool EnumProc(IntPtr window, IntPtr data);
+  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr data);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder text, int count);
+  [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr window, int index);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr window, int id);
+  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
+  public static IntPtr[] Checkboxes(IntPtr parent) {
+    var result = new List<IntPtr>();
+    EnumChildWindows(parent, (window, _) => {
+      var name = new StringBuilder(256); GetClassName(window, name, 256);
+      int kind = GetWindowLong(window, -16) & 15;
+      if (IsWindowVisible(window) && name.ToString() == "Button" && (kind == 2 || kind == 3)) result.Add(window);
+      return true;
+    }, IntPtr.Zero);
+    return result.ToArray();
+  }
+}
+'@
   foreach ($mode in @('normal_close', 'parent_crash')) {
     $process = Start-Process -FilePath $application -WorkingDirectory $install -PassThru
     $connected = $false
@@ -68,25 +95,25 @@ try {
   # Select stock Tauri's destructive checkbox to prove our preservation hook wins.
   $remove = Start-Process -FilePath $uninstaller -ArgumentList "_?=$install" -PassThru
   $until = [DateTime]::UtcNow.AddSeconds(20)
-  $checkbox = $null
+  $checkbox = [IntPtr]::Zero
   while ([DateTime]::UtcNow -lt $until) {
     Start-Sleep -Milliseconds 250
     $remove.Refresh()
     if ($remove.HasExited) { throw 'installed_qa: uninstaller_exited_early' }
     if ($remove.MainWindowHandle -eq [IntPtr]::Zero) { continue }
-    $dialog = [System.Windows.Automation.AutomationElement]::FromHandle($remove.MainWindowHandle)
-    $checkCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::CheckBox)
-    $checkbox = $dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $checkCondition)
-    if ($null -ne $checkbox) { break }
+    $checks = [AiimageNsisControls]::Checkboxes($remove.MainWindowHandle)
+    if ($checks.Count -eq 1) { $checkbox = $checks[0]; break }
   }
-  if ($null -eq $checkbox) { throw 'installed_qa: data_checkbox_not_observed' }
-  $toggle = $checkbox.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
-  if ($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { $toggle.Toggle() }
-  if ($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { throw 'installed_qa: checkbox_not_selected' }
-  $buttonCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1')
-  $button = $dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $buttonCondition)
-  if ($null -eq $button) { throw 'installed_qa: uninstall_button_missing' }
-  $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+  if ($checkbox -eq [IntPtr]::Zero) {
+    Write-Output "installed_qa: uninstaller_window=$($remove.MainWindowHandle) title=$($remove.MainWindowTitle)"
+    throw 'installed_qa: data_checkbox_not_observed'
+  }
+  [AiimageNsisControls]::SendMessage($checkbox, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null # BM_CLICK
+  if ([AiimageNsisControls]::SendMessage($checkbox, 0x00F0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32() -ne 1) { throw 'installed_qa: checkbox_not_selected' }
+  Write-Output 'installed_qa: destructive_checkbox_visibly_selected'
+  $button = [AiimageNsisControls]::GetDlgItem($remove.MainWindowHandle, 1)
+  if ($button -eq [IntPtr]::Zero) { throw 'installed_qa: uninstall_button_missing' }
+  [AiimageNsisControls]::SendMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
   $until = [DateTime]::UtcNow.AddSeconds(20)
   while ((Test-Path -LiteralPath $application) -and [DateTime]::UtcNow -lt $until) { Start-Sleep -Milliseconds 250 }
   if (Test-Path -LiteralPath $application) { throw 'installed_qa: app_remained_after_uninstall' }
@@ -96,8 +123,8 @@ try {
   $until = [DateTime]::UtcNow.AddSeconds(20)
   while (-not $remove.HasExited -and [DateTime]::UtcNow -lt $until) {
     try {
-      $button = $dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $buttonCondition)
-      if ($null -ne $button -and $button.Current.IsEnabled) { $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+      $button = [AiimageNsisControls]::GetDlgItem($remove.MainWindowHandle, 1)
+      if ($button -ne [IntPtr]::Zero) { [AiimageNsisControls]::SendMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
     } catch { }
     Start-Sleep -Milliseconds 250
     $remove.Refresh()
