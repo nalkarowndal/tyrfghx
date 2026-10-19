@@ -61,6 +61,17 @@ pip install, download, Python process, GPU probe or image generation runs.
 Every preview remains blocked pending explicit approval. See
 [M4-1d manifest preview and limitations](docs/M4_INFERENCE_WHEEL_MANIFEST_PREVIEW.md).
 
+## M4-1e: verify synthetic wheel-file bytes without install
+
+M4-1e adds **test-fixture-only**, read-only SHA-256 comparison for locally
+created mock wheel-named files under a marked QA directory. It checks
+bounded file size, mock file changes, common symlink/junction/reparse
+attributes and cancellation. This is **not a safe production path API**, a
+trusted wheel provenance guarantee, real Python environment selection or
+an install-ready package lockfile. No real user files, models, downloads,
+GPU operations or package installers are accessed. See
+[M4-1e synthetic wheel integrity QA](docs/M4_SYNTHETIC_WHEEL_INTEGRITY_QA.md).
+
 ## M3-Final: freeze M3 and audit before M4
 
 M3-46 completed **four ordinary CI jobs** and the **real hosted Windows
