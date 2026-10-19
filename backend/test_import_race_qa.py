@@ -68,8 +68,13 @@ def test_source_path_swap_after_open_keeps_original_validated_bytes(tmp_path, mo
     def before_stage(*args, **kwargs):
         if not flipped["value"]:
             flipped["value"] = True
-            source.unlink()
-            replacement.rename(source)
+            try:
+                source.unlink()
+                replacement.rename(source)
+            except PermissionError:
+                # Windows file sharing may forbid removal of an open file;
+                # this is a platform protection, not evidence of a swap.
+                pytest.skip("Windows denies replacement of open fixture")
         return ordinary(*args, **kwargs)
 
     monkeypatch.setattr(model_import.tempfile, "NamedTemporaryFile", before_stage)
