@@ -93,6 +93,16 @@ installation readiness. No user package/model files, installers,
 downloaders, CUDA devices or Tauri/webview permissions are involved.
 See [M4-1g ZIP framing QA](docs/M4_SYNTHETIC_ZIP_FRAMING_QA.md).
 
+## M4-1h: Win32 native file-handle QA for synthetic fixtures only
+
+Windows Rust **test-only** code now opens temporary fake wheel/marker
+files with `FILE_FLAG_OPEN_REPARSE_POINT`, queries kernel file
+attributes and final handle paths, and rejects common file/directory
+symlink redirections. It does not inspect real wheel files or validate
+every ancestor component under concurrent attacks; **production path
+security, user consent, installation and GPU use remain unverified**.
+See [M4-1h native file handle fixture QA](docs/M4_NATIVE_FILE_HANDLE_FIXTURE_QA.md).
+
 ## M3-Final: freeze M3 and audit before M4
 
 M3-46 completed **four ordinary CI jobs** and the **real hosted Windows
