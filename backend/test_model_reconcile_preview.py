@@ -50,6 +50,8 @@ def test_unregistered_mock_only_requires_manual_review():
         (record(size_bytes=0), "invalid_candidate"),
         (record(id="../outside.safetensors"), "invalid_observation"),
         (record(id="loras/fixture.bin"), "invalid_observation"),
+        (record(name="another.safetensors"), "invalid_observation"),
+        (record(id="vae/fixture.safetensors"), "invalid_observation"),
         (record(integrity_state="file_changed"), "invalid_observation"),
         (record(recorded_sha256="a" * 64), "invalid_observation"),
     ],
