@@ -79,7 +79,9 @@ def test_protocol_version_is_exact_integer(version):
 def test_request_id_never_exposes_raw_paths_or_pii(request_id):
     with pytest.raises(ProtocolReject, match="^invalid_request_id$") as exc:
         parse_describe_request(message(request_id=request_id))
-    assert str(request_id) not in str(exc.value)
+    assert str(exc.value) == "invalid_request_id"
+    if str(request_id):
+        assert str(request_id) not in str(exc.value)
 
 
 def test_rejects_non_bytes_without_stringifying_or_logging():
