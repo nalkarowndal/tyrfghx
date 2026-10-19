@@ -10,6 +10,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 import os
+import stat
 import time
 
 LOCK_NAME = ".integrity-write.lockdir"
@@ -28,12 +29,14 @@ def exclusive_manifest_write(root: Path):
             lock_path.mkdir()
             break
         except FileExistsError:
-            # Do not follow/recover an untrusted or abandoned lock.
-            # The holder may have released the lock between mkdir and
-            # this check. A missing path means we can retry immediately.
-            if not lock_path.exists() and not lock_path.is_symlink():
+            # Inspect one metadata snapshot. On Windows the holder can
+            # remove the lock between two separate exists()/is_dir() calls.
+            # A vanished lock is not an unsafe lock; retry mkdir instead.
+            try:
+                locked = lock_path.lstat()
+            except FileNotFoundError:
                 continue
-            if lock_path.is_symlink() or not lock_path.is_dir():
+            if not stat.S_ISDIR(locked.st_mode):
                 raise ValueError("Unsafe integrity lock")
             if time.monotonic() >= deadline:
                 raise ValueError("Integrity manifest is busy; inspect stale lock manually")
