@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-Final (feature freeze / safety audit / M4 handoff; not yet merged or publicly released).**
+> **Current milestone: M4-1 (CPU-only inference worker protocol; no worker launch or GPU access).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -12,6 +12,24 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 > NSIS overlay bundles an authenticated **read-only** Python API and passed
 > installed Windows GUI checks; CUDA inference packaging, clean-machine
 > device validation, signed distribution, and owner-GPU testing remain open.
+
+## M4-1: begin separate inference worker without executing it
+
+M3-Final's [4/4 general CI](https://github.com/nalkarowndal/tyrfghx/actions/runs/39187526269)
+and [actual hosted Windows packaged backend/installer/GUI QA](https://github.com/nalkarowndal/tyrfghx/actions/runs/39187461951)
+**passed** on its final snapshot. That marks the M3 **feature freeze
+and automated QA**, not a merge/release of the open M2/M3 Draft stack.
+
+The first M4-1 slice adds an **offline, 4096-byte-bounded and strictly
+validated JSON `describe` worker protocol** and hostile-input tests.
+It describes an independent, currently **unconnected** Python inference
+worker, always requiring future native-parent authentication, a separate
+venv and explicit GPU consent. It does **not** expose a new API,
+spawn a child process, install packages, download weights, probe
+CUDA, access model files or unlock image generation. See
+[M4-1 worker protocol design and acceptance](docs/M4_CPU_ONLY_WORKER_PROTOCOL.md).
+M4-1 remains a provisional Draft stacked on the **unmerged**
+M3-Final PR; `main` is unchanged.
 
 ## M3-Final: freeze M3 and audit before M4
 
