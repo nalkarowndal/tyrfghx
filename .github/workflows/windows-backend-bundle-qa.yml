@@ -1,7 +1,7 @@
 name: Windows packaged backend QA
 on:
   push:
-    branches: [feat/m3-39-windows-backend-bundle]
+    branches: [feat/m3-39-windows-backend-bundle, feat/m3-40-installed-backend-restart-qa]
   workflow_dispatch:
 permissions:
   contents: read
@@ -56,7 +56,7 @@ jobs:
           ./scripts/windows-nsis-bundle-qa.ps1 -VerifyBundle
           git diff --exit-code -- src-tauri/Cargo.lock package-lock.json
           if ($LASTEXITCODE -ne 0) { throw 'lockfile_changed' }
-      - name: Installed GUI authentication, normal/crash cleanup, uninstall preservation
+      - name: Installed GUI auth, restart button click, crash cleanup and uninstall data preservation
         shell: pwsh
         run: ./scripts/windows-installed-backend-qa.ps1
       # No artifact upload, release, signing, model download or GPU execution.

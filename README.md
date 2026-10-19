@@ -3,13 +3,36 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-38 (opt-in unsigned Windows NSIS installer-build QA).**
+> **Current milestone: M3-40 (installed Windows backend restart GUI QA).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
-> release builds and browsers still cannot start GPU jobs. Packaged backend
-> integration, driver/device validation, and native GUI testing are outstanding.
+> release builds and browsers still cannot start GPU jobs. The opt-in M3-39
+> NSIS overlay bundles an authenticated **read-only** Python API and passed
+> installed Windows GUI checks; CUDA inference packaging, clean-machine
+> device validation, signed distribution, and owner-GPU testing remain open.
+
+## M3-40: installed app restart button and backend crash recovery acceptance
+
+M3-39 added the bundled authenticated read-only FastAPI server, Windows
+process-group cleanup and installed NSIS GUI/data-preservation QA. M3-40
+adds actual installed Windows UIAutomation interaction: terminate **only**
+the current owned backend process, wait for the visible enabled
+**백엔드 다시 시작** control, click it, require a newly connected single
+loopback-only API child, then verify that it exits with the app. The existing
+uninstall test must continue preserving synthetic user models and outputs.
+See [M3-40 installed backend restart QA](docs/M3_INSTALLED_BACKEND_RESTART_QA.md).
+
+## M3-39: bundled Windows read-only backend and managed Tauri lifecycle
+
+The opt-in M3-39 backend-qa NSIS overlay packages a PyInstaller onedir
+read-only FastAPI API and starts it under a Tauri-owned Windows Job Object,
+with private loopback authentication and safe cleanup. The hosted Windows
+CI verified actual installed app connection, process exit/crash cleanup
+and preservation of model/output fixtures on uninstall. This is **not**
+a CUDA/PyTorch/Diffusers package and does not enable release GPU
+inference. See [M3-39 design and build QA](docs/M3_WINDOWS_BACKEND_BUNDLE.md).
 
 ## M3-38: unsigned Windows NSIS installer build (NOT distributed)
 
@@ -591,9 +614,3 @@ M10 is reserved for a Krea-inspired canvas/editor workflow, **not** multi-charac
 generation. ComfyUI remains an optional future engine adapter.
 
 - [M3-8 generation metrics, checksum and Windows debug limitations](docs/M3_VERIFIED_GENERATION_METRICS.md)
-# M3-39 backend packaging
-
-The opt-in Windows backend bundle adds authenticated loopback FastAPI startup,
-shutdown/restart supervision and installed GUI/data-preservation QA. It preserves
-the existing native catalog and GPU consent/release policy. It does **not** bundle
-CUDA, Diffusers or model weights. See [design, build instructions and verified QA](docs/M3_WINDOWS_BACKEND_BUNDLE.md).
