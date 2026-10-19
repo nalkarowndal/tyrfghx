@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-45 (read-only inference runtime dependency inventory; CUDA not probed).**
+> **Current milestone: M3-46 (isolated inference environment plan; CPU-only metadata).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -12,6 +12,20 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 > NSIS overlay bundles an authenticated **read-only** Python API and passed
 > installed Windows GUI checks; CUDA inference packaging, clean-machine
 > device validation, signed distribution, and owner-GPU testing remain open.
+
+## M3-46: plan a separate, explicitly authorized AI inference environment
+
+The app now clearly distinguishes the **bundled read-only API's Python
+package metadata** from a future independent inference worker. It
+reports that no inference Python virtual environment is yet connected,
+requires user-selected installation and explicit GPU consent, and
+never auto-downloads packages or probes CUDA. A `+cuXXX` PyTorch
+wheel version suffix is shown only as an unverified **metadata tag**;
+it cannot prove the NVIDIA GPU driver's compatibility or available
+VRAM. The React inspector shows a non-executable setup plan and
+official Python/PyTorch references. Existing installed Windows GUI,
+NSIS preservation and read-only security policy remain unchanged.
+See [M3-46 isolated runtime plan](docs/M3_ISOLATED_INFERENCE_RUNTIME_PLAN.md).
 
 ## M3-45: optional AI dependency inventory without GPU access
 
