@@ -1,7 +1,7 @@
 name: Windows packaged backend QA
 on:
   push:
-    branches: [feat/m3-39-windows-backend-bundle, feat/m3-40-installed-backend-restart-qa, feat/m3-41-nsis-inplace-repair-qa, feat/m3-42-nsis-version-upgrade-qa, feat/m3-43-nsis-downgrade-guard-qa, feat/m3-44-nsis-preinstall-failure-recovery-qa, feat/m3-45-readonly-ai-runtime-inventory, feat/m3-46-isolated-ai-runtime-plan]
+    branches: [feat/m3-39-windows-backend-bundle, feat/m3-40-installed-backend-restart-qa, feat/m3-41-nsis-inplace-repair-qa, feat/m3-42-nsis-version-upgrade-qa, feat/m3-43-nsis-downgrade-guard-qa, feat/m3-44-nsis-preinstall-failure-recovery-qa, feat/m3-45-readonly-ai-runtime-inventory, feat/m3-46-isolated-ai-runtime-plan, chore/m3-final-readiness-audit]
   workflow_dispatch:
 permissions:
   contents: read
