@@ -18,7 +18,7 @@ if ($installer.Count -ne 1) { throw 'installed_qa: installer_count' }
 $upgradeInstaller = $null
 if ($VerifyTwoVersionUpgrade) {
   $upgradeInstaller = $installer[0]
-  if ($upgradeInstaller.Name -notmatch '0\\.1\\.1') {
+  if ($upgradeInstaller.Name -notmatch '0\.1\.1') {
     throw 'installed_qa: upgrade_installer_version_unexpected'
   }
   $oldPath = Join-Path $env:RUNNER_TEMP 'aiimage-m3-42-original-setup.exe'
@@ -80,7 +80,7 @@ try {
   if ($VerifyTwoVersionUpgrade) {
     # Two real different-version NSIS packages, not an updater plugin or
     # model data migration. This is a disposable per-user Windows runner.
-    $uninstallKey = 'Registry::HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\aiimage'
+    $uninstallKey = 'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\aiimage'
     if (-not (Test-Path -LiteralPath $uninstallKey)) {
       throw 'installed_qa: older_version_uninstall_registration_missing'
     }
