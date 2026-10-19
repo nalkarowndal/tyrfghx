@@ -29,6 +29,10 @@ def exclusive_manifest_write(root: Path):
             break
         except FileExistsError:
             # Do not follow/recover an untrusted or abandoned lock.
+            # The holder may have released the lock between mkdir and
+            # this check. A missing path means we can retry immediately.
+            if not lock_path.exists() and not lock_path.is_symlink():
+                continue
             if lock_path.is_symlink() or not lock_path.is_dir():
                 raise ValueError("Unsafe integrity lock")
             if time.monotonic() >= deadline:
