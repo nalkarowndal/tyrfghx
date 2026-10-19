@@ -89,8 +89,11 @@ def test_nested_json_never_crashes_protocol_parser():
     # exceeding CPython's recursion bound. Fail closed with a safe error.
     nested = (b"[" * 1100) + b"0" + (b"]" * 1100)
     assert len(nested) < MAX_FRAME_BYTES
-    with pytest.raises(ProtocolReject, match="^invalid_json$"):
+    with pytest.raises(ProtocolReject) as exc:
         parse_describe_request(nested)
+    # CPython decoder recursion thresholds vary across builds. Both errors
+    # fail closed, carry no raw request data and cannot start any worker.
+    assert str(exc.value) in {"invalid_json", "invalid_request_shape"}
 
 
 def test_rejects_non_bytes_without_stringifying_or_logging():
