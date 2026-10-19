@@ -110,6 +110,19 @@ export default function App() {
           <li key={item.package}>{item.package}: {item.state === "detected" ? `설치 정보 확인 (${item.version})` : item.state === "missing" ? "미설치" : "확인 불가"}</li>
         )}</ul>
         <p className="muted">생성 엔진 상태: 미검증 · 자동 다운로드 또는 GPU 실행 없음</p>
+        {status.runtime_preflight.setup_plan && <section aria-label="AI 추론 환경 준비 계획">
+          <h3>독립 AI 추론 환경 준비</h3>
+          <p className="muted">위의 설치 정보는 현재 읽기 전용 Python API 프로세스 기준입니다. 별도 추론 환경은 아직 앱에 연결되지 않았습니다.</p>
+          <p className="muted">권장 구조: Python 3.12 전용 가상환경 · 별도 프로세스 · 사용자가 선택하고 승인한 설치</p>
+          <p className="muted">PyTorch 패키지 표기: {status.runtime_preflight.setup_plan.torch_wheel_hint.kind === "cuda_wheel_metadata"
+            ? `CUDA 휠 태그 ${status.runtime_preflight.setup_plan.torch_wheel_hint.tag} (GPU 호환성 미검증)`
+            : status.runtime_preflight.setup_plan.torch_wheel_hint.kind === "cpu_wheel_metadata"
+            ? "CPU 휠 표기 (GPU 호환성 미검증)"
+            : "확인 불가 (GPU 호환성 미검증)"}</p>
+          <p className="muted">자동 설치·다운로드·GPU 테스트·모델 실행: 비활성. 실제 추론 실행 전 별도 동의가 필요합니다.</p>
+          <p className="muted">설치 검토: pytorch.org/get-started/locally/ · docs.python.org/3/library/venv.html</p>
+        </section>}
+
       </section>}
       {!status && <p className="muted">{error || "백엔드 상태 확인 중..."}</p>}
       {managedBackend && error && <button type="button" disabled={restartingBackend} onClick={() => { void retryBackend(); }}>백엔드 다시 시작</button>}

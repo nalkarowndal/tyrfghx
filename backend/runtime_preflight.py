@@ -9,6 +9,7 @@ from __future__ import annotations
 from importlib import metadata
 import re
 from typing import Callable
+from runtime_plan import isolated_runtime_plan
 
 # Fixed allow-list; never accept client-controlled package names or paths.
 PACKAGES = ("torch", "diffusers", "transformers", "accelerate", "safetensors", "Pillow")
@@ -42,7 +43,7 @@ def dependency_inventory(
                 state = "unknown"
         results.append({"package": name, "state": state, "version": version})
 
-    return {
+    inventory = {
         "schema_version": 1,
         "method": "distribution_metadata_only",
         "readiness": "not_verified",
@@ -52,3 +53,5 @@ def dependency_inventory(
         "downloads_performed": False,
         "packages": results,
     }
+    inventory["setup_plan"] = isolated_runtime_plan(inventory)
+    return inventory

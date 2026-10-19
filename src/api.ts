@@ -7,8 +7,32 @@ export type RuntimePackage = {
   state: "detected" | "missing" | "unknown";
   version: string | null;
 };
+export type RuntimeSetupPlan = {
+  schema_version: 1;
+  inspection_scope: "current_api_python_process_only";
+  inference_runtime_connection: "not_connected";
+  recommended_isolation: "separate_python_virtual_environment";
+  preferred_python_version: "3.12";
+  installation_mode: "manual_only";
+  automatic_downloads_enabled: false;
+  automated_package_installation: false;
+  gpu_probe_authorized: false;
+  cuda_or_device_compatibility_verified: false;
+  model_execution_verified: false;
+  torch_wheel_hint: {
+    kind: "cuda_wheel_metadata" | "cpu_wheel_metadata" | "unknown";
+    tag: string | null;
+    hardware_compatibility_verified: false;
+  };
+  setup_steps: string[];
+  documentation: {
+    python_venv: string;
+    pytorch_windows: string;
+  };
+};
 export type RuntimePreflight = {
   schema_version: number;
+  setup_plan?: RuntimeSetupPlan;
   method: "distribution_metadata_only";
   readiness: "not_verified";
   cuda_tested: false;
