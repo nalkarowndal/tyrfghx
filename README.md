@@ -50,6 +50,17 @@ process-group cleanup. This does **not** register or ship a production worker;
 its fixed QA credentials are not suitable for real authentication. See
 [M4-1c native stdio worker QA](docs/M4_NATIVE_STDIO_WORKER_QA.md).
 
+## M4-1d: inspect candidate wheel manifests without installation
+
+A new **offline-only** Python module validates a bounded, strict candidate
+Windows/Python 3.12 wheel manifest and previews a provisional space budget.
+Version strings and checksum **syntax** are checked, but the actual wheel
+files, dependencies, source trust, runtime compatibility and available
+storage are **not** verified. No target path can be passed in, and no venv,
+pip install, download, Python process, GPU probe or image generation runs.
+Every preview remains blocked pending explicit approval. See
+[M4-1d manifest preview and limitations](docs/M4_INFERENCE_WHEEL_MANIFEST_PREVIEW.md).
+
 ## M3-Final: freeze M3 and audit before M4
 
 M3-46 completed **four ordinary CI jobs** and the **real hosted Windows
