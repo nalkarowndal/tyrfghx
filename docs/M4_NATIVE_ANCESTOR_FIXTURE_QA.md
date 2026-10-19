@@ -28,9 +28,16 @@ Before opening a **synthetic** fixture named `sample.whl` or
   `FILE_ATTRIBUTE_TAG_INFO` to reject symlinks, junctions and other
   filesystem reparse points at the checked component.
 - Query each handle's final DOS path via `GetFinalPathNameByHandleW`
-  and require that it matches its preceding parent handle's path plus
-  the next component name; then open the allowed synthetic child with
-  `FILE_FLAG_OPEN_REPARSE_POINT`.
+  without equating adjacent components' displayed path strings: Windows
+  short-name, drive-alias or canonicalized path spellings may differ even
+  for legitimate fixture directories. Still open the allowed synthetic
+  child with `FILE_FLAG_OPEN_REPARSE_POINT` and compare its handle path
+  against the fixture root as in M4-1h.
+- **CI regression learned:** the first Windows Rust run failed seven
+  native fixture assertions because the new adjacent string comparison
+  incorrectly returned `fixture_parent_denied`. The false-positive
+  comparison was removed, but native no-follow attribute checks remain.
+  Retained handles do not guarantee ancestry across concurrent renames.
 - Extend Windows-native Rust QA for nested regular directories, a
   symlink **grandparent**, absolute device/UNC/parent-traversal denial,
   and confirmation that fixture bytes are unchanged after inspection.
