@@ -21,4 +21,17 @@ if (@($backend.build.features).Count -ne 1 -or
     $backend.bundle.windows.nsis.installMode -ne 'currentUser') {
   throw "upgrade_config_qa: bundled_backend_or_install_mode_changed"
 }
+
+# The third QA overlay must ONLY disable downgrade installs for the
+# ephemeral NSIS test build. Neither normal production nor package metadata
+# is overridden, and no test-only WebDriver capability can be enabled.
+$guard = Get-Content -LiteralPath (Join-Path $root 'src-tauri/tauri.downgrade-guard-qa.conf.json') -Raw | ConvertFrom-Json
+if (@($guard.PSObject.Properties.Name).Count -ne 1 -or
+    @($guard.bundle.PSObject.Properties.Name).Count -ne 1 -or
+    @($guard.bundle.windows.PSObject.Properties.Name).Count -ne 1 -or
+    $guard.bundle.windows.allowDowngrades -ne $false -or
+    @($backend.bundle.windows.PSObject.Properties.Name).Count -ne 1) {
+  throw "upgrade_config_qa: downgrade_policy_not_isolated"
+}
+Write-Output "upgrade_config_qa: older_installer_downgrade_guard_enabled"
 Write-Output "upgrade_config_qa: safe_version_overlay_only"
