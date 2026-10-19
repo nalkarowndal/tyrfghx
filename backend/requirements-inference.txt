@@ -1,0 +1,8 @@
+# M3-1 OPTIONAL runtime. Install CUDA-enabled PyTorch separately using
+# https://pytorch.org/get-started/locally/ for your Windows/Python/GPU combination.
+# Do not add heavyweight inference dependencies to CI's requirements.txt.
+diffusers>=0.35,<0.39
+transformers>=4.44,<5
+accelerate>=1,<2
+safetensors>=0.4,<1
+Pillow>=10,<13
