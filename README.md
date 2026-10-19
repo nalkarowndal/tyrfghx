@@ -103,6 +103,17 @@ every ancestor component under concurrent attacks; **production path
 security, user consent, installation and GPU use remain unverified**.
 See [M4-1h native file handle fixture QA](docs/M4_NATIVE_FILE_HANDLE_FIXTURE_QA.md).
 
+## M4-1i: inspect each Win32 ancestor for disposable QA fixtures
+
+Windows Rust **test-only** checks now open and retain per-component handles
+from a local drive root down to the temporary synthetic fixture. They reject
+reparse-point ancestors, UNC/Windows device paths and parent traversal,
+then verify the approved synthetic child. This is **not race-free
+production path validation**, trusted wheel provenance or install readiness.
+No real user files, packages, models, Tauri commands, downloads or GPU
+operations are enabled. See
+[M4-1i ancestor handle QA limitations](docs/M4_NATIVE_ANCESTOR_FIXTURE_QA.md).
+
 ## M3-Final: freeze M3 and audit before M4
 
 M3-46 completed **four ordinary CI jobs** and the **real hosted Windows
