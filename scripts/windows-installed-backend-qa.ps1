@@ -154,6 +154,71 @@ try {
       throw 'installed_qa: rejected_downgrade_mutated_user_data'
     }
     Write-Output 'installed_qa: older_0_1_0_downgrade_rejected_0_1_1_payload_and_data_unchanged'
+
+    # M3-44: abort a *newer-version repair* BEFORE NSIS writes any payload.
+    # This validates fail-closed preflight and a safe subsequent retry, NOT
+    # recovery from an arbitrary power loss or interrupted mid-write upgrade.
+    $preflightAppHash = (Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash
+    $preflightBackendHash = (Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256).Hash
+    $preflightUninstallHash = (Get-FileHash -LiteralPath (Join-Path $install 'uninstall.exe') -Algorithm SHA256).Hash
+    $previousAbortValue = $env:AIIMAGE_M3_44_ABORT_PREINSTALL
+    $faultInstaller = $null
+    try {
+      # Never set the injection flag on any user-owned process.
+      $env:AIIMAGE_M3_44_ABORT_PREINSTALL = '1'
+      $faultInstaller = Start-Process -FilePath $upgradeInstaller.FullName -ArgumentList "/S /UPDATE /D=$install" -PassThru
+      if (-not $faultInstaller.WaitForExit(90000)) {
+        try { Stop-Process -Id $faultInstaller.Id -Force -ErrorAction Stop } catch {}
+        throw 'installed_qa: preinstall_abort_timeout'
+      }
+      if ($faultInstaller.ExitCode -ne 83) {
+        throw 'installed_qa: preinstall_abort_code_unexpected'
+      }
+    } finally {
+      $env:AIIMAGE_M3_44_ABORT_PREINSTALL = $previousAbortValue
+    }
+    if ((Get-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion).DisplayVersion -ne '0.1.1') {
+      throw 'installed_qa: preinstall_abort_changed_registered_version'
+    }
+    if (-not (Test-Path -LiteralPath $application -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $backendExecutable -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $install 'uninstall.exe') -PathType Leaf)) {
+      throw 'installed_qa: preinstall_abort_removed_payload'
+    }
+    if ((Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash -ne $preflightAppHash -or
+        (Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256).Hash -ne $preflightBackendHash -or
+        (Get-FileHash -LiteralPath (Join-Path $install 'uninstall.exe') -Algorithm SHA256).Hash -ne $preflightUninstallHash) {
+      throw 'installed_qa: preinstall_abort_mutated_payload'
+    }
+    python (Join-Path $repo 'scripts/backend-bundle-manifest.py') (Join-Path $install 'backend') --verify
+    if ($LASTEXITCODE -ne 0) { throw 'installed_qa: preinstall_abort_backend_manifest_failed' }
+    if ([IO.File]::ReadAllText($sentinel) -ne 'synthetic preservation fixture' -or
+        [IO.File]::ReadAllText($outputSentinel) -ne 'synthetic output fixture') {
+      throw 'installed_qa: preinstall_abort_mutated_user_data'
+    }
+    Write-Output 'installed_qa: preinstall_failure_preserved_current_version_backend_and_data'
+
+    # Retry without the injection flag, using the SAME owned 0.1.1 binary.
+    $retried = Start-Process -FilePath $upgradeInstaller.FullName -ArgumentList "/S /UPDATE /D=$install" -PassThru
+    if (-not $retried.WaitForExit(90000) -or $retried.ExitCode -ne 0) {
+      throw 'installed_qa: post_preflight_failure_retry_failed'
+    }
+    if ((Get-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion).DisplayVersion -ne '0.1.1') {
+      throw 'installed_qa: retry_changed_version'
+    }
+    if (-not (Test-Path -LiteralPath $application -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $backendExecutable -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash -ne $preflightAppHash -or
+        (Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256).Hash -ne $preflightBackendHash) {
+      throw 'installed_qa: retry_payload_mismatch'
+    }
+    python (Join-Path $repo 'scripts/backend-bundle-manifest.py') (Join-Path $install 'backend') --verify
+    if ($LASTEXITCODE -ne 0) { throw 'installed_qa: retry_backend_manifest_failed' }
+    if ([IO.File]::ReadAllText($sentinel) -ne 'synthetic preservation fixture' -or
+        [IO.File]::ReadAllText($outputSentinel) -ne 'synthetic output fixture') {
+      throw 'installed_qa: retry_mutated_user_data'
+    }
+    Write-Output 'installed_qa: preinstall_failure_followed_by_clean_retry_and_preservation'
   }
 
   Add-Type -AssemblyName UIAutomationClient

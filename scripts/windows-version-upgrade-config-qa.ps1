@@ -34,4 +34,30 @@ if (@($guard.PSObject.Properties.Name).Count -ne 1 -or
   throw "upgrade_config_qa: downgrade_policy_not_isolated"
 }
 Write-Output "upgrade_config_qa: older_installer_downgrade_guard_enabled"
+# M3-44: this failpoint is ONLY in a disposable test-only NSIS overlay.
+$preflight = Get-Content -LiteralPath (Join-Path $root 'src-tauri/tauri.preinstall-fault-qa.conf.json') -Raw | ConvertFrom-Json
+$originalHook = Join-Path $root 'src-tauri/nsis/preserve-data.nsh'
+$faultHook = Join-Path $root 'src-tauri/nsis/m3-44-preinstall-fault.nsh'
+if (@($preflight.PSObject.Properties.Name).Count -ne 1 -or
+    @($preflight.bundle.PSObject.Properties.Name).Count -ne 1 -or
+    @($preflight.bundle.windows.PSObject.Properties.Name).Count -ne 1 -or
+    @($preflight.bundle.windows.nsis.PSObject.Properties.Name).Count -ne 1 -or
+    $preflight.bundle.windows.nsis.installerHooks -ne 'nsis/m3-44-preinstall-fault.nsh' -or
+    $backend.bundle.windows.nsis.installerHooks -ne 'nsis/preserve-data.nsh' -or
+    -not (Test-Path -LiteralPath $originalHook -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $faultHook -PathType Leaf)) {
+  throw "upgrade_config_qa: preinstall_fault_overlay_not_isolated"
+}
+$source = Get-Content -LiteralPath $faultHook -Raw
+$originalHookContent = Get-Content -LiteralPath $originalHook -Raw
+if ($source -notmatch [regex]::Escape('!include "${__FILEDIR__}\preserve-data.nsh"') -or
+    $originalHookContent -notmatch '!macro NSIS_HOOK_PREUNINSTALL' -or
+    $source -notmatch '!macro NSIS_HOOK_PREINSTALL' -or
+    $source -notmatch 'AIIMAGE_M3_44_ABORT_PREINSTALL' -or
+    $source -notmatch 'SetErrorLevel 83' -or
+    $source -notmatch '(?m)^\s+Quit\s*$' -or
+    $source -match '(?m)^\s*(File|Delete|RMDir|WriteReg|Exec|ExecWait)\b') {
+  throw "upgrade_config_qa: preinstall_abort_or_preserve_hook_invalid"
+}
+Write-Output "upgrade_config_qa: disposable_preinstall_failure_hook_isolated"
 Write-Output "upgrade_config_qa: safe_version_overlay_only"

@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-43 (safe rejection of an older Windows NSIS installer).**
+> **Current milestone: M3-44 (safe NSIS preinstall abort and clean retry QA).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -12,6 +12,22 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 > NSIS overlay bundles an authenticated **read-only** Python API and passed
 > installed Windows GUI checks; CUDA inference packaging, clean-machine
 > device validation, signed distribution, and owner-GPU testing remain open.
+
+## M3-44: fail before installer writes, preserve data and recover by retry
+
+The disposable GitHub Windows package QA adds a **test-only** Tauri NSIS
+preinstall hook that exits with a distinct failure code when an explicit
+one-time environment variable is set. After verifying 0.1.0-to-0.1.1
+update and rejection of the old installer, the test simulates a
+**pre-copy / pre-registry** installation failure of 0.1.1, requires
+unchanged registered version, Tauri/backend/uninstaller SHA-256 and
+synthetic model/output files, clears the test flag and requires
+a normal successful retry. The existing real installed GUI backend
+restart and uninstall data preservation checks run afterward. No
+test hook is included in the normal production configuration.
+
+**This is NOT recovery from an interrupted file-write/partial update.**
+See [M3-44 NSIS preinstall recovery QA](docs/M3_WINDOWS_NSIS_PREFLIGHT_RECOVERY_QA.md).
 
 ## M3-43: reject unauthorized downgrade and preserve installed data
 
