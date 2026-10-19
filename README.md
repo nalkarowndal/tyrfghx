@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-46 (isolated inference environment plan; CPU-only metadata).**
+> **Current milestone: M3-Final (feature freeze / safety audit / M4 handoff; not yet merged or publicly released).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -12,6 +12,26 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 > NSIS overlay bundles an authenticated **read-only** Python API and passed
 > installed Windows GUI checks; CUDA inference packaging, clean-machine
 > device validation, signed distribution, and owner-GPU testing remain open.
+
+## M3-Final: freeze M3 and audit before M4
+
+M3-46 completed **four ordinary CI jobs** and the **real hosted Windows
+packaged backend + NSIS + GUI regression** on commit
+`2f34d8d32f270f860bc2a92717e5f82830d9696e`.
+M3-Final freezes new M3 functionality and adds a **read-only,
+fail-closed CI release-boundary audit**, plus an explicit unresolved
+stacked-PR and production-release risk register. Run
+`python scripts/m3_final_gate.py` to audit checked-in Tauri release
+defaults, Rust/WebDriver feature isolation, private API and no-GPU
+readiness, installer data-preservation hooks and real Windows QA markers.
+A static gate passing is **not proof of live GPU inference or a signed
+release**. The final snapshot must independently pass Linux/Windows
+CI and the real hosted Windows installer/GUI workflow; M3 still needs
+review and authorized integration of its many Draft PRs. **No automatic
+merge or end-user release is performed.**
+
+Read [M3-Final acceptance checklist](docs/M3_FINAL_ACCEPTANCE.md)
+and [M4 inference handoff](docs/M4_INFERENCE_ENGINE_HANDOFF.md).
 
 ## M3-46: plan a separate, explicitly authorized AI inference environment
 
