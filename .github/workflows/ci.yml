@@ -32,6 +32,8 @@ jobs:
         working-directory: backend
       - run: python -m pytest -q
         working-directory: backend
+      - name: Audit M3-Final release boundaries (static only; no GPU or install)
+        run: python scripts/m3_final_gate.py
   backend-windows:
     runs-on: windows-latest
     steps:
@@ -43,6 +45,8 @@ jobs:
         working-directory: backend
       - run: python -m pytest -q
         working-directory: backend
+      - name: Audit M3-Final release boundaries (static only; no GPU or install)
+        run: python scripts/m3_final_gate.py
   desktop-rust-windows:
     runs-on: windows-latest
     steps:
