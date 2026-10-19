@@ -9,6 +9,10 @@ mod gpu_diagnostics;
 mod vram_safety;
 mod backend_runtime;
 
+// M4-1h fixed synthetic file metadata QA; never linked into release binaries.
+#[cfg(all(test, windows))]
+mod native_fixture_handle_qa;
+
 // CPU-only Win32 subprocess/pipe QA; compiled into tests ONLY.
 #[cfg(all(test, windows))]
 mod inference_worker_stdio_qa;
