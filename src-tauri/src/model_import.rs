@@ -80,6 +80,11 @@ impl ManifestWriteGuard {
             match fs::create_dir(&lock) {
                 Ok(()) => return Ok(Self { path: lock }),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // The holder may have just released the directory. Avoid
+                    // a transient false unsafe-lock report in that window.
+                    if !lock.exists() && !lock.is_symlink() {
+                        continue;
+                    }
                     if lock.is_symlink() || !lock.is_dir() {
                         return Err("Unsafe integrity registry lock".into());
                     }
@@ -283,4 +288,47 @@ mod tests {
         example_file(&source);
         assert!(import_selected_file(&source, "../other", &tmp.path().join("models")).is_err());
     }
+    #[test]
+    fn concurrent_native_imports_keep_every_registry_entry() {
+        use std::sync::{Arc, Barrier};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("models");
+        let gate = Arc::new(Barrier::new(6));
+        let mut threads = Vec::new();
+        for i in 0..6 {
+            let path = temp.path().join(format!("concurrent_{i}.safetensors"));
+            example_file(&path);
+            let shared_root = root.clone();
+            let ready = Arc::clone(&gate);
+            threads.push(std::thread::spawn(move || {
+                ready.wait();
+                import_selected_file(&path, "loras", &shared_root)
+            }));
+        }
+        for thread in threads {
+            assert!(thread.join().unwrap().is_ok());
+        }
+        let text = fs::read_to_string(root.join("integrity.json")).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let entries = manifest["models"].as_object().unwrap();
+        assert_eq!(entries.len(), 6);
+        for i in 0..6 {
+            assert!(entries.contains_key(&format!("loras/concurrent_{i}.safetensors")));
+        }
+        assert!(!root.join(".integrity-write.lockdir").exists());
+    }
+
+    #[test]
+    fn broken_registry_is_rejected_before_model_is_published() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("models");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("integrity.json"), b"{broken").unwrap();
+        let source = temp.path().join("safe.safetensors");
+        example_file(&source);
+        assert!(import_selected_file(&source, "loras", &root).is_err());
+        assert!(!root.join("loras/safe.safetensors").exists());
+        assert_eq!(fs::read(root.join("integrity.json")).unwrap(), b"{broken");
+    }
+
 }
