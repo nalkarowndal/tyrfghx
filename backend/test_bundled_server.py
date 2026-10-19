@@ -96,6 +96,17 @@ class BundledServerTests(unittest.TestCase):
             self.assertEqual([p['package'] for p in inventory['packages']],
                              ['torch', 'diffusers', 'transformers', 'accelerate',
                               'safetensors', 'Pillow'])
+            plan = inventory['setup_plan']
+            self.assertEqual(plan['inspection_scope'], 'current_api_python_process_only')
+            self.assertEqual(plan['inference_runtime_connection'], 'not_connected')
+            self.assertEqual(plan['recommended_isolation'], 'separate_python_virtual_environment')
+            self.assertEqual(plan['installation_mode'], 'manual_only')
+            self.assertFalse(plan['automatic_downloads_enabled'])
+            self.assertFalse(plan['automated_package_installation'])
+            self.assertFalse(plan['gpu_probe_authorized'])
+            self.assertFalse(plan['cuda_or_device_compatibility_verified'])
+            self.assertFalse(plan['model_execution_verified'])
+            self.assertFalse(plan['torch_wheel_hint']['hardware_compatibility_verified'])
             first.stdin.close()
             self.assertEqual(first.wait(timeout=10), 0)
             second = self.launch()
