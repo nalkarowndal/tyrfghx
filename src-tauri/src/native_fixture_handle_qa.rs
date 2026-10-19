@@ -145,7 +145,7 @@ fn inspect_synthetic_ancestor_chain(
         if let Some(parent) = &previous_final {
             let name = directory.file_name().ok_or("invalid_fixture_path")?;
             let leaf = name.to_str().ok_or("invalid_fixture_path")?;
-            if leaf.is_empty() || leaf.contains(['\\', '/', ':']) {
+            if leaf.is_empty() || leaf.chars().any(|c| matches!(c, '\\' | '/' | ':')) {
                 return Err("invalid_fixture_path");
             }
             let expected = format!("{}\\{}", parent.trim_end_matches('\\'), leaf);
