@@ -1,7 +1,7 @@
 name: Windows packaged backend QA
 on:
   push:
-    branches: [feat/m3-39-windows-backend-bundle, feat/m3-40-installed-backend-restart-qa, feat/m3-41-nsis-inplace-repair-qa, feat/m3-42-nsis-version-upgrade-qa, feat/m3-43-nsis-downgrade-guard-qa, feat/m3-44-nsis-preinstall-failure-recovery-qa]
+    branches: [feat/m3-39-windows-backend-bundle, feat/m3-40-installed-backend-restart-qa, feat/m3-41-nsis-inplace-repair-qa, feat/m3-42-nsis-version-upgrade-qa, feat/m3-43-nsis-downgrade-guard-qa, feat/m3-44-nsis-preinstall-failure-recovery-qa, feat/m3-45-readonly-ai-runtime-inventory]
   workflow_dispatch:
 permissions:
   contents: read
@@ -25,7 +25,7 @@ jobs:
       - name: Build frozen read-only API with hashed Windows dependencies
         shell: pwsh
         run: ./scripts/build-windows-backend.ps1
-      - name: Exercise frozen executable auth, EOF, duplicate ownership and recovery
+      - name: Exercise frozen executable auth, no-CUDA runtime inventory, EOF and recovery
         shell: pwsh
         run: |
           $env:AIIMAGE_TEST_BACKEND = Join-Path $PWD 'src-tauri/backend-dist/aiimage-backend/aiimage-backend.exe'
