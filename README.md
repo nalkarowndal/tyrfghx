@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-44 (safe NSIS preinstall abort and clean retry QA).**
+> **Current milestone: M3-45 (read-only inference runtime dependency inventory; CUDA not probed).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -12,6 +12,20 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 > NSIS overlay bundles an authenticated **read-only** Python API and passed
 > installed Windows GUI checks; CUDA inference packaging, clean-machine
 > device validation, signed distribution, and owner-GPU testing remain open.
+
+## M3-45: optional AI dependency inventory without GPU access
+
+The authenticated read-only Python API reports **only six preselected
+package distributions' metadata** (PyTorch, Diffusers, Transformers,
+Accelerate, Safetensors and Pillow). The Tauri inspector displays
+detected/missing/unknown versions and prominently warns that **GPU/CUDA
+compatibility, model loading and image generation were not verified**,
+even if all six packages are installed. The lookup never imports
+`torch`, allocates GPU memory, invokes CUDA, downloads packages or
+opens user model files. Both CI Python platforms test safe/malformed
+metadata; the existing Windows packaged-API workflow additionally
+tests private authentication for the actual frozen binary. See
+[M3-45 metadata-only runtime preflight](docs/M3_READONLY_RUNTIME_PREFLIGHT.md).
 
 ## M3-44: fail before installer writes, preserve data and recover by retry
 

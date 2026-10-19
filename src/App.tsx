@@ -103,6 +103,14 @@ export default function App() {
     </main>
     <aside className="inspector"><h2>작업 상태</h2><p>M3-2 · 생성 설정 및 결과 갤러리</p>
       <h3>실행 엔진</h3>{status?.engines.map(e => <div className="engine" key={e.name}><b>{e.name}</b><span>{e.status === "ready" ? "사용 가능" : "미연결"}</span><small>{e.note}</small></div>)}
+      {status?.runtime_preflight && <section aria-label="AI 런타임 사전 진단">
+        <h3>AI 런타임 사전 진단</h3>
+        <p className="muted">설치된 패키지 정보만 확인했습니다. GPU·CUDA 동작, 모델 로딩 및 실제 이미지 생성은 검증하지 않았습니다.</p>
+        <ul>{status.runtime_preflight.packages.map(item =>
+          <li key={item.package}>{item.package}: {item.state === "detected" ? `설치 정보 확인 (${item.version})` : item.state === "missing" ? "미설치" : "확인 불가"}</li>
+        )}</ul>
+        <p className="muted">생성 엔진 상태: 미검증 · 자동 다운로드 또는 GPU 실행 없음</p>
+      </section>}
       {!status && <p className="muted">{error || "백엔드 상태 확인 중..."}</p>}
       {managedBackend && error && <button type="button" disabled={restartingBackend} onClick={() => { void retryBackend(); }}>백엔드 다시 시작</button>}
       <h3>모델 목록</h3><p className="muted">찾은 모델: {availableModels.length}개</p>

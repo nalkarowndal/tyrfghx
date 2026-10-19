@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import secrets
 from starlette.responses import JSONResponse
+from runtime_preflight import dependency_inventory
 
 MODEL_ROOT = DEFAULT_MODEL_ROOT
 
@@ -17,6 +18,7 @@ def health():
 def status():
     return {
         "app": "aiimage", "version": "0.1.0", "mode": "foundation",
+        "runtime_preflight": dependency_inventory(),
         "engines": [
             {"name": "Local PyTorch/Diffusers", "status": "unavailable", "note": "이 API 패키지에는 GPU 추론 런타임이 포함되지 않습니다."},
             {"name": "ComfyUI (optional)", "status": "unavailable", "note": "연동되지 않음"},

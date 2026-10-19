@@ -57,10 +57,10 @@ class BundledServerTests(unittest.TestCase):
         return data
 
     @staticmethod
-    def request(data, token=None, **headers):
+    def request(data, token=None, path='/api/health', **headers):
         if token is not None:
             headers['Authorization'] = 'Bearer ' + token
-        req = urllib.request.Request(f"http://127.0.0.1:{data['port']}/api/health", headers=headers)
+        req = urllib.request.Request(f"http://127.0.0.1:{data['port']}{path}", headers=headers)
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
             with opener.open(req, timeout=3) as response:
@@ -80,6 +80,22 @@ class BundledServerTests(unittest.TestCase):
             self.assertEqual(self.request(data, 'wrong')[0], 401)
             self.assertEqual(self.request(data, data['token'], Origin='https://evil.example')[0], 403)
             self.assertEqual(self.request(data, data['token'])[0], 200)
+            # Frozen Windows backend exposes ONLY authenticated, read-only
+            # metadata inventory. It never loads torch, models or CUDA.
+            self.assertEqual(self.request(data, path='/api/status')[0], 401)
+            code, payload = self.request(data, data['token'], path='/api/status')
+            self.assertEqual(code, 200)
+            current = json.loads(payload)
+            inventory = current['runtime_preflight']
+            self.assertEqual(inventory['readiness'], 'not_verified')
+            self.assertEqual(inventory['method'], 'distribution_metadata_only')
+            self.assertFalse(inventory['cuda_tested'])
+            self.assertFalse(inventory['gpu_accessed'])
+            self.assertFalse(inventory['models_opened'])
+            self.assertFalse(inventory['downloads_performed'])
+            self.assertEqual([p['package'] for p in inventory['packages']],
+                             ['torch', 'diffusers', 'transformers', 'accelerate',
+                              'safetensors', 'Pillow'])
             first.stdin.close()
             self.assertEqual(first.wait(timeout=10), 0)
             second = self.launch()
