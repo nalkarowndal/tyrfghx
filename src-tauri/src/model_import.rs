@@ -112,13 +112,13 @@ impl ManifestWriteGuard {
             match fs::create_dir(&lock) {
                 Ok(()) => return Ok(Self { path: lock }),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    // The holder may have just released the directory. Avoid
-                    // a transient false unsafe-lock report in that window.
-                    if !lock.exists() && !lock.is_symlink() {
-                        continue;
-                    }
-                    if lock.is_symlink() || !lock.is_dir() {
-                        return Err("Unsafe integrity registry lock".into());
+                    // One metadata snapshot, rather than multiple path
+                    // queries which can disagree during a normal release.
+                    match fs::symlink_metadata(&lock) {
+                        Ok(meta) if meta.file_type().is_dir() => {}
+                        Ok(_) => return Err("Unsafe integrity registry lock".into()),
+                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+                        Err(err) => return Err(err.to_string()),
                     }
                     if start.elapsed() >= Duration::from_secs(10) {
                         return Err("Integrity registry busy; inspect stale lock manually".into());
