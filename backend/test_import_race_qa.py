@@ -126,3 +126,29 @@ def test_corrupt_manifest_preflight_does_not_publish_file(tmp_path):
     with pytest.raises(ValueError, match="damaged"):
         import_model(source, "loras", root)
     assert not (root / "loras" / source.name).exists()
+
+
+def test_orphaned_valid_synthetic_copy_remains_untrusted_and_read_only(tmp_path, monkeypatch):
+    """After a registry-write failure, catalog never trusts/repairs an orphan."""
+    from model_catalog import scan_models
+
+    source = fake_safetensors(tmp_path / "orphan.safetensors", "fixture")
+    root = tmp_path / "models"
+    def force_manifest_failure(*_args, **_kwargs):
+        raise OSError("synthetic transaction failure")
+
+    monkeypatch.setattr(model_import, "save_manifest_entry", force_manifest_failure)
+    with pytest.raises(RuntimeError, match="manual repair"):
+        import_model(source, "loras", root)
+    target = root / "loras" / source.name
+    before = target.read_bytes()
+    assert before == source.read_bytes()
+    assert not (root / "integrity.json").exists()
+    records = scan_models(root)
+    matches = [record for record in records if record.id == f"loras/{source.name}"]
+    assert len(matches) == 1
+    assert matches[0].integrity_state == "not_recorded"
+    assert matches[0].recorded_sha256 is None
+    assert matches[0].validation == "metadata_only"
+    assert target.read_bytes() == before
+    assert not (root / "integrity.json").exists()
