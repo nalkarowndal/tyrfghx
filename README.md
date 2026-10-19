@@ -72,6 +72,16 @@ an install-ready package lockfile. No real user files, models, downloads,
 GPU operations or package installers are accessed. See
 [M4-1e synthetic wheel integrity QA](docs/M4_SYNTHETIC_WHEEL_INTEGRITY_QA.md).
 
+## M4-1f: inspect tiny synthetic Wheel ZIP/RECORD structures (no install)
+
+M4-1f adds a **bounded in-memory test-only** wheel archive checker for
+metadata, `RECORD` per-file SHA-256, path ambiguity, duplicates, and
+abnormal compression. A fixture integration test builds upon M4-1e mock
+file hashing. This is **NOT** a trusted real-wheel parser, provenance
+verifier, transitive dependency lockfile, or installation readiness.
+No production process, webview permission, download, model/GPU read or
+installer is enabled. See [M4-1f QA and limitations](docs/M4_SYNTHETIC_WHEEL_ARCHIVE_QA.md).
+
 ## M3-Final: freeze M3 and audit before M4
 
 M3-46 completed **four ordinary CI jobs** and the **real hosted Windows
