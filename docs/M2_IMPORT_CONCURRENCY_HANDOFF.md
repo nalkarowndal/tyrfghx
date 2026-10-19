@@ -52,6 +52,15 @@ and integration hold [Issue #60](https://github.com/nalkarowndal/tyrfghx/issues/
   It checks Python-held lock blocks a Rust registry update and Rust-held
   lock blocks the Python guard. This is a disposable CI fixture test,
   not an installed GUI end-to-end test or malicious filesystem audit.
+- M2 cross-language manifest preservation QA now runs the **real**
+  Python Pydantic-backed `save_manifest_entry` writer against native Rust
+  `record_snapshot` in a disposable Windows temp root. A Rust lock is
+  held while Python is ready; Python must not commit early. After release,
+  Python writes its record and Rust writes a third, and the test requires
+  all **three fake registry entries** to survive. This requires
+  `backend/requirements.txt` in the Windows Rust CI runner (for Pydantic).
+  It still does NOT certify malicious cross-user locking or full
+  transactional crash recovery.
 - Header inspection is metadata-only; it is not proof of model safety,
   inference compatibility, or publisher provenance. No GPU, torch,
   model weights, downloads or pip installations were used.
