@@ -44,6 +44,38 @@ fn ensure_real_directory(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+// Reject a final-component Windows reparse point on the *opened handle*
+// instead of trusting only a prior path-based is_symlink check. Ancestor
+// reparse paths and malicious concurrent filesystem mutation remain outside
+// this narrowly scoped safeguard.
+#[cfg(windows)]
+fn open_source_file(source: &Path) -> Result<File, String> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    let input = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(source)
+        .map_err(|e| e.to_string())?;
+    let metadata = input.metadata().map_err(|e| e.to_string())?;
+    if !metadata.is_file()
+        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    {
+        return Err("Source reparse point or nonregular file rejected".into());
+    }
+    Ok(input)
+}
+
+#[cfg(not(windows))]
+fn open_source_file(source: &Path) -> Result<File, String> {
+    let input = File::open(source).map_err(|e| e.to_string())?;
+    if !input.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err("Source must be a regular file".into());
+    }
+    Ok(input)
+}
+
 fn check_header(source: &mut File, size: u64) -> Result<(), String> {
     if size < 10 || size > MAX_FILE {
         return Err("Model size is invalid or exceeds 64 GiB".into());
@@ -177,7 +209,7 @@ fn import_selected_file(source: &Path, category: &str, root: &Path) -> Result<Im
         return Err("Only named .safetensors files may be imported".into());
     }
 
-    let mut input = File::open(source).map_err(|e| e.to_string())?;
+    let mut input = open_source_file(source)?;
     let source_info = input.metadata().map_err(|e| e.to_string())?;
     check_header(&mut input, source_info.len())?;
     use std::io::Seek;
@@ -288,6 +320,29 @@ mod tests {
         example_file(&source);
         assert!(import_selected_file(&source, "../other", &tmp.path().join("models")).is_err());
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_handle_rejects_test_symlink_source_without_following() {
+        use std::os::windows::fs::symlink_file;
+        let root = tempfile::tempdir().unwrap();
+        let original = root.path().join("original.safetensors");
+        example_file(&original);
+        let contents = fs::read(&original).unwrap();
+        let link = root.path().join("linked.safetensors");
+        match symlink_file(&original, &link) {
+            Ok(()) => {
+                assert!(open_source_file(&link).is_err());
+                assert!(import_selected_file(&link, "loras", &root.path().join("models")).is_err());
+                assert_eq!(fs::read(&original).unwrap(), contents);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                // Some Windows CI runners cannot create developer symlinks.
+            }
+            Err(e) => panic!("unexpected temporary symlink setup failure: {e}"),
+        }
+    }
+
     #[test]
     fn concurrent_native_imports_keep_every_registry_entry() {
         use std::sync::{Arc, Barrier};
