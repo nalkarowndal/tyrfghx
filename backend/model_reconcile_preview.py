@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from model_catalog import ModelRecord
+from model_catalog import MODEL_FOLDERS, ModelRecord
 from model_integrity import IntegrityEntry
 from model_metadata import valid_id
 
@@ -58,8 +58,12 @@ def preview_orphan_review(
         return OrphanReview("invalid_manifest", "manifest_requires_manual_review", None, None)
     if record is None or not isinstance(record, ModelRecord):
         return OrphanReview("invalid_observation", "catalog_observation_missing", None, None)
-    if not valid_id(record.id) or not record.id.endswith(".safetensors"):
+    if not valid_id(record.id):
         return OrphanReview("invalid_observation", "model_id_invalid", None, None)
+    category_folder, filename = record.id.split("/")
+    if (record.name != filename
+            or record.category != MODEL_FOLDERS.get(category_folder)):
+        return OrphanReview("invalid_observation", "catalog_identity_conflict", None, None)
     if record.file_format != "safetensors" or record.validation != "metadata_only":
         return OrphanReview("invalid_candidate", "unsupported_or_invalid_model_metadata", record.id, None)
     if record.size_bytes <= 0:
