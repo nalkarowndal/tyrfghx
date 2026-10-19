@@ -84,6 +84,15 @@ def test_request_id_never_exposes_raw_paths_or_pii(request_id):
         assert str(request_id) not in str(exc.value)
 
 
+def test_nested_json_never_crashes_protocol_parser():
+    # Deeply nested JSON can fit well within the byte budget while
+    # exceeding CPython's recursion bound. Fail closed with a safe error.
+    nested = (b"[" * 1100) + b"0" + (b"]" * 1100)
+    assert len(nested) < MAX_FRAME_BYTES
+    with pytest.raises(ProtocolReject, match="^invalid_json$"):
+        parse_describe_request(nested)
+
+
 def test_rejects_non_bytes_without_stringifying_or_logging():
     for frame in [None, {}, "secret path", bytearray(message()), memoryview(message())]:
         with pytest.raises(ProtocolReject, match="^invalid_frame_size$"):
