@@ -13,6 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from model_metadata import valid_id
+from model_manifest_lock import exclusive_manifest_write
 
 CHUNK_SIZE = 4 * 1024 * 1024
 MAX_MANIFEST_BYTES = 1_048_576
@@ -60,31 +61,32 @@ def save_manifest_entry(root: Path, model_id: str, entry: IntegrityEntry) -> Non
     if not valid_id(model_id) or root.is_symlink() or not root.is_dir():
         raise ValueError("Invalid model root/identifier")
     manifest = root / "integrity.json"
-    if manifest.is_symlink():
-        raise ValueError("Manifest symlinks are forbidden")
-    entries = read_manifest(root, strict=True)
-    entries[model_id] = entry
-    data = json.dumps(
-        {"schema_version": 1, "models": {k: v.model_dump() for k, v in entries.items()}},
-        sort_keys=True, indent=2,
-    )
-    if len(data.encode("utf-8")) > MAX_MANIFEST_BYTES:
-        raise ValueError("Integrity manifest would exceed size limit")
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=root, prefix=".integrity-", suffix=".tmp",
-            delete=False,
-        ) as temp:
-            temp_path = Path(temp.name)
-            temp.write(data)
-            temp.flush()
-            os.fsync(temp.fileno())
-        os.replace(temp_path, manifest)
-    finally:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
-
+    # The Rust desktop importer uses the very same cooperative lock.
+    with exclusive_manifest_write(root):
+        if manifest.is_symlink():
+            raise ValueError("Manifest symlinks are forbidden")
+        entries = read_manifest(root, strict=True)
+        entries[model_id] = entry
+        data = json.dumps(
+            {"schema_version": 1, "models": {k: v.model_dump() for k, v in entries.items()}},
+            sort_keys=True, indent=2,
+        )
+        if len(data.encode("utf-8")) > MAX_MANIFEST_BYTES:
+            raise ValueError("Integrity manifest would exceed size limit")
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", encoding="utf-8", dir=root, prefix=".integrity-", suffix=".tmp",
+                delete=False,
+            ) as temp:
+                temp_path = Path(temp.name)
+                temp.write(data)
+                temp.flush()
+                os.fsync(temp.fileno())
+            os.replace(temp_path, manifest)
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
 
 def model_file(root: Path, model_id: str) -> Path:
     if not valid_id(model_id) or root.is_symlink() or not root.is_dir():
