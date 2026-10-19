@@ -54,6 +54,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       # Use the reviewed committed npm lockfile on both Linux and Windows.
       - run: npm ci --no-fund
       - name: Verify Windows dev launcher without opening a GUI or GPU

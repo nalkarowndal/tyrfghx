@@ -41,6 +41,15 @@ packages or enable GPU/model execution. Real private parent-worker transport,
 Windows Job Object ownership and isolated runtime installation are still
 future reviewed steps. See [M4-1b security boundary](docs/M4_PARENT_AUTH_PROOF_PREVIEW.md).
 
+## M4-1c: test native Windows owned-pipe worker without GPU
+
+A Windows Rust **test-only** harness now starts a checked-in, CPU-only Python
+fixture under the existing Win32 Job Object and validates bounded stdin/stdout
+frames, synthetic HMAC proof, timeouts, abnormal child exits and complete
+process-group cleanup. This does **not** register or ship a production worker;
+its fixed QA credentials are not suitable for real authentication. See
+[M4-1c native stdio worker QA](docs/M4_NATIVE_STDIO_WORKER_QA.md).
+
 ## M3-Final: freeze M3 and audit before M4
 
 M3-46 completed **four ordinary CI jobs** and the **real hosted Windows
