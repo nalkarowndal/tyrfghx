@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-41 (unsigned same-version NSIS repair and data-preservation QA).**
+> **Current milestone: M3-42 (unsigned two-version Windows NSIS upgrade QA).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -12,6 +12,21 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 > NSIS overlay bundles an authenticated **read-only** Python API and passed
 > installed Windows GUI checks; CUDA inference packaging, clean-machine
 > device validation, signed distribution, and owner-GPU testing remain open.
+
+## M3-42: test a real two-version NSIS update without publishing releases
+
+The hosted Windows packaging workflow builds two separate **unsigned**
+NSIS installers from the same safe frontend/read-only Python backend
+payload, with package versions **0.1.0** and a test-only **0.1.1**
+configuration override. On a disposable runner it verifies 0.1.0
+installation and same-version repair, applies the second installer using
+`/UPDATE`, checks Windows uninstall registry version advancement and
+the continued integrity of backend files and synthetic models/outputs.
+The test then repeats actual installed GUI restart and uninstall
+preservation checks. This only tests installer-version metadata changes,
+not schema migrations, signed updates, rollback, user-PC upgrades or
+real GPU image generation. See
+[M3-42 two-version Windows NSIS QA](docs/M3_WINDOWS_TWO_VERSION_UPGRADE_QA.md).
 
 ## M3-41: safe same-version installed Windows repair QA
 

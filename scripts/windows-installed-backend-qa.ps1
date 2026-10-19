@@ -1,4 +1,5 @@
 # Disposable hosted CI only. Never run against an owner's existing installation.
+param([switch] $VerifyTwoVersionUpgrade)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') { throw 'installed_qa: disposable_ci_required' }
@@ -14,6 +15,28 @@ New-Item -ItemType Directory -Path (Split-Path $outputSentinel) | Out-Null
 [IO.File]::WriteAllText($outputSentinel, 'synthetic output fixture')
 $installer = @(Get-ChildItem (Join-Path $repo 'src-tauri/target/release/bundle/nsis') -Filter '*setup.exe')
 if ($installer.Count -ne 1) { throw 'installed_qa: installer_count' }
+$upgradeInstaller = $null
+if ($VerifyTwoVersionUpgrade) {
+  $upgradeInstaller = $installer[0]
+  if ($upgradeInstaller.Name -notmatch '0\.1\.1') {
+    throw 'installed_qa: upgrade_installer_version_unexpected'
+  }
+  $oldPath = Join-Path $env:RUNNER_TEMP 'aiimage-m3-42-original-setup.exe'
+  if (-not (Test-Path -LiteralPath $oldPath -PathType Leaf)) {
+    throw 'installed_qa: old_version_installer_missing'
+  }
+  $oldPath = (Resolve-Path -LiteralPath $oldPath).Path
+  if ([IO.Path]::GetFullPath((Split-Path -Parent $oldPath)) -ne
+      [IO.Path]::GetFullPath($env:RUNNER_TEMP)) {
+    throw 'installed_qa: old_installer_outside_runner_temp'
+  }
+  $oldItem = Get-Item -LiteralPath $oldPath
+  if (($oldItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+      $oldItem.Length -lt 100000) {
+    throw 'installed_qa: old_installer_invalid'
+  }
+  $installer = @($oldItem)
+}
 $process = $null
 $backendId = $null
 try {
@@ -53,6 +76,45 @@ try {
     throw 'installed_qa: repair_user_data_changed'
   }
   Write-Output 'installed_qa: same_version_update_mode_repair_preserved_app_backend_models_and_outputs'
+
+  if ($VerifyTwoVersionUpgrade) {
+    # Two real different-version NSIS packages, not an updater plugin or
+    # model data migration. This is a disposable per-user Windows runner.
+    $uninstallKey = 'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\aiimage'
+    if (-not (Test-Path -LiteralPath $uninstallKey)) {
+      throw 'installed_qa: older_version_uninstall_registration_missing'
+    }
+    $beforeVersion = (Get-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion).DisplayVersion
+    if ($beforeVersion -ne '0.1.0') {
+      throw 'installed_qa: older_version_not_registered'
+    }
+    $upgraded = Start-Process -FilePath $upgradeInstaller.FullName -ArgumentList "/S /UPDATE /D=$install" -PassThru
+    if (-not $upgraded.WaitForExit(90000) -or $upgraded.ExitCode -ne 0) {
+      throw 'installed_qa: different_version_upgrade_failed'
+    }
+    if (-not (Test-Path -LiteralPath $uninstallKey)) {
+      throw 'installed_qa: upgraded_version_uninstall_registration_missing'
+    }
+    $afterVersion = (Get-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion).DisplayVersion
+    if ($afterVersion -ne '0.1.1') {
+      throw 'installed_qa: different_version_not_registered'
+    }
+    if (-not (Test-Path -LiteralPath $application -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $backendExecutable -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $install 'uninstall.exe') -PathType Leaf)) {
+      throw 'installed_qa: upgraded_payload_missing'
+    }
+    if ((Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256).Hash -ne $originalBackendHash) {
+      throw 'installed_qa: upgraded_backend_changed_unexpectedly'
+    }
+    python (Join-Path $repo 'scripts/backend-bundle-manifest.py') (Join-Path $install 'backend') --verify
+    if ($LASTEXITCODE -ne 0) { throw 'installed_qa: upgraded_backend_manifest_failed' }
+    if ([IO.File]::ReadAllText($sentinel) -ne 'synthetic preservation fixture' -or
+        [IO.File]::ReadAllText($outputSentinel) -ne 'synthetic output fixture') {
+      throw 'installed_qa: upgraded_user_data_changed'
+    }
+    Write-Output 'installed_qa: two_version_0_1_0_to_0_1_1_upgrade_preserved_backend_models_and_outputs'
+  }
 
   Add-Type -AssemblyName UIAutomationClient
   Add-Type -AssemblyName UIAutomationTypes
