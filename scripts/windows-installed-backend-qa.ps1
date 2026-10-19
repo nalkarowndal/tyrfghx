@@ -52,7 +52,7 @@ public static class AiimageNsisControls {
   }
 }
 '@
-  foreach ($mode in @('normal_close', 'parent_crash')) {
+  foreach ($mode in @('normal_close', 'parent_crash', 'restart_after_backend_crash')) {
     $process = Start-Process -FilePath $application -WorkingDirectory $install -PassThru
     $connected = $false
     $until = [DateTime]::UtcNow.AddSeconds(40)
@@ -75,7 +75,71 @@ public static class AiimageNsisControls {
     if ($ports.Count -ne 1 -or $ports[0].LocalAddress -ne '127.0.0.1') { throw 'installed_qa: non_loopback_listener' }
     $response = Invoke-WebRequest -Uri "http://127.0.0.1:$($ports[0].LocalPort)/api/status" -SkipHttpErrorCheck -NoProxy
     if ($response.StatusCode -ne 401) { throw 'installed_qa: unauthenticated_access' }
-    if ($mode -eq 'normal_close') {
+    if ($mode -eq 'restart_after_backend_crash') {
+      # Kill only the owned disposable backend, never another PID or user data.
+      # The installed GUI must show its explicit restart control after the
+      # normal status-poll interval; no direct restart IPC is invoked here.
+      $previousBackendId = $backendId
+      Stop-Process -Id $previousBackendId -Force
+      $until = [DateTime]::UtcNow.AddSeconds(15)
+      while ((Get-Process -Id $previousBackendId -ErrorAction SilentlyContinue) -and [DateTime]::UtcNow -lt $until) {
+        Start-Sleep -Milliseconds 100
+      }
+      if (Get-Process -Id $previousBackendId -ErrorAction SilentlyContinue) {
+        throw 'installed_qa: killed_backend_still_running'
+      }
+      $restartButton = $null
+      $until = [DateTime]::UtcNow.AddSeconds(45)
+      while ([DateTime]::UtcNow -lt $until) {
+        Start-Sleep -Milliseconds 400
+        $process.Refresh()
+        if ($process.HasExited) { throw 'installed_qa: app_exited_before_restart' }
+        $window = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+        $condition = [System.Windows.Automation.PropertyCondition]::new(
+          [System.Windows.Automation.AutomationElement]::NameProperty, '백엔드 다시 시작')
+        $restartButton = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+        if ($null -ne $restartButton -and $restartButton.Current.IsEnabled) { break }
+      }
+      if ($null -eq $restartButton -or -not $restartButton.Current.IsEnabled) {
+        throw 'installed_qa: restart_button_not_visible'
+      }
+      $pattern = $restartButton.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+      if ($null -eq $pattern) { throw 'installed_qa: restart_button_not_invokable' }
+      ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
+      $reconnected = $false
+      $until = [DateTime]::UtcNow.AddSeconds(45)
+      while ([DateTime]::UtcNow -lt $until) {
+        Start-Sleep -Milliseconds 400
+        $process.Refresh()
+        if ($process.HasExited) { throw 'installed_qa: app_exited_during_restart' }
+        $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($process.Id) AND Name='aiimage-backend.exe'")
+        if ($children.Count -gt 1) { throw 'installed_qa: duplicate_backend_after_restart' }
+        if ($children.Count -ne 1) { continue }
+        $candidatePid = [int]$children[0].ProcessId
+        if ($candidatePid -eq $previousBackendId) { throw 'installed_qa: stale_backend_reused' }
+        $window = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+        $connectedCondition = [System.Windows.Automation.PropertyCondition]::new(
+          [System.Windows.Automation.AutomationElement]::NameProperty, 'Python API 연결됨')
+        if ($null -ne $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $connectedCondition)) {
+          $backendId = $candidatePid
+          $reconnected = $true
+          break
+        }
+      }
+      if (-not $reconnected) { throw 'installed_qa: restart_did_not_reconnect' }
+      $newPorts = @(Get-NetTCPConnection -OwningProcess $backendId -State Listen)
+      if ($newPorts.Count -ne 1 -or $newPorts[0].LocalAddress -ne '127.0.0.1') {
+        throw 'installed_qa: restarted_backend_not_loopback'
+      }
+      $newResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$($newPorts[0].LocalPort)/api/status" -SkipHttpErrorCheck -NoProxy
+      if ($newResponse.StatusCode -ne 401) {
+        throw 'installed_qa: restarted_backend_unauthenticated_access'
+      }
+      if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) {
+        throw 'installed_qa: normal_close_after_restart_failed'
+      }
+      Write-Output 'installed_qa: installed_gui_restart_click_reconnected_and_no_orphans'
+    } elseif ($mode -eq 'normal_close') {
       if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) { throw 'installed_qa: normal_close_failed' }
     } else {
       # Kill ONLY the parent. The child's disappearance must be due to Job Object cleanup.
