@@ -37,16 +37,21 @@ and integration hold [Issue #60](https://github.com/nalkarowndal/tyrfghx/issues/
   do not stop processes ignoring the lock or an actor with permission to
   replace the lock directory, root or manifest. Waiting processes never
   forcibly clear stale locks.
-- Windows native source opening still checks a pathname separately from
-  `File::open`; a privileged concurrent actor could change it between
-  operations. No production handle-relative Win32 traversal is implemented.
+- Native Windows model source opening now uses
+  `OpenOptionsExt::custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)` and checks
+  `FILE_ATTRIBUTE_REPARSE_POINT` on the **opened file handle**, rejecting
+  the final-component symbolic link/reparse point. An attacker could still
+  race the **ancestor directory** path or replace filesystem objects; a
+  full trusted-root handle-relative Win32 traversal is NOT implemented.
 - The Rust and Python failures preserve any copied-but-unregistered files
   rather than risking the wrong unlink; future UI should expose a local,
   owner-approved reconciliation flow after checking live hashes.
-- Concurrent Rust+Python live mixed-process competition is covered by the
-  **shared lock protocol and independent tests**, but a real Windows
-  cross-language process test must be added to prove interoperability in
-  an installed application.
+- A **real Windows cross-language process test** now launches Python
+  3.12 as a child process of the Rust native test runner and uses the
+  actual `model_manifest_lock.exclusive_manifest_write` implementation.
+  It checks Python-held lock blocks a Rust registry update and Rust-held
+  lock blocks the Python guard. This is a disposable CI fixture test,
+  not an installed GUI end-to-end test or malicious filesystem audit.
 - Header inspection is metadata-only; it is not proof of model safety,
   inference compatibility, or publisher provenance. No GPU, torch,
   model weights, downloads or pip installations were used.
@@ -62,9 +67,11 @@ and integration hold [Issue #60](https://github.com/nalkarowndal/tyrfghx/issues/
   and Windows Rust CI all succeed.
 - [ ] Existing local import/no-clobber and corrupted-registry regressions
   continue to pass.
-- [ ] Separate native Windows no-follow file-open and cross-language
-  process tests are reviewed before calling arbitrary filesystem
-  access production-safe.
+- [ ] New Windows no-follow fixture test and bidirectional Python/Rust
+  child-process guard test pass exact-head Rust CI. Review that the
+  limited scope is not overstated as safe arbitrary-path access.
+- [ ] Handle-relative root/ancestor traversal and malicious concurrent
+  replacement defense remain separate production security blockers.
 - [ ] Human security review / branch protection / owner-approved
   integration remain blockers in Issue #60.
 
