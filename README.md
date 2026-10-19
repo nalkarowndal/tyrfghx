@@ -114,6 +114,16 @@ No real user files, packages, models, Tauri commands, downloads or GPU
 operations are enabled. See
 [M4-1i ancestor handle QA limitations](docs/M4_NATIVE_ANCESTOR_FIXTURE_QA.md).
 
+## M4-1j: Win32 native fixture object identity and stacked PR gate
+
+Windows Rust **test-only** metadata inspection now compares native volume/file
+identities and hardlink counts for disposable fake Wheel files. It rejects
+multiple links or duplicate ancestor identities and does **not** open
+real packages, model files, install tools, GPU devices or user data.
+The long M3/M4 Draft PR stack is still **unmerged to main** and requires
+independent dependency-order security review before a release.
+See [M4-1j native identity and stack review](docs/M4_NATIVE_IDENTITY_STACK_REVIEW.md).
+
 ## M3-Final: freeze M3 and audit before M4
 
 M3-46 completed **four ordinary CI jobs** and the **real hosted Windows

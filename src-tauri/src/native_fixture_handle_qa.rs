@@ -15,7 +15,8 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
     Storage::FileSystem::{
-        CreateFileW, GetFileInformationByHandleEx, GetFinalPathNameByHandleW,
+        CreateFileW, GetFileInformationByHandle, GetFileInformationByHandleEx,
+        GetFinalPathNameByHandleW, BY_HANDLE_FILE_INFORMATION,
         FileAttributeTagInfo, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
         FILE_ATTRIBUTE_TAG_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
         FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -78,6 +79,36 @@ fn attribute_tag(handle: &OwnedFileHandle) -> Result<FILE_ATTRIBUTE_TAG_INFO, &'
     Ok(out)
 }
 
+/// Stable within this fixture test while the file handle remains open.
+/// Neither the path string nor the file name is used as a file identity.
+/// This is *not* an endorsement of all filesystem/volume ID semantics.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+struct TestObjectIdentity {
+    volume_serial: u32,
+    file_index: u64,
+}
+
+fn identity_and_link_count(
+    handle: &OwnedFileHandle,
+) -> Result<(TestObjectIdentity, u32), &'static str> {
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileInformationByHandle(handle.0, &mut info) } == 0 {
+        return Err("fixture_identity_denied");
+    }
+    // Be conservative about an uninformative filesystem result.
+    if info.nNumberOfLinks == 0 {
+        return Err("fixture_identity_denied");
+    }
+    Ok((
+        TestObjectIdentity {
+            volume_serial: info.dwVolumeSerialNumber,
+            file_index: (u64::from(info.nFileIndexHigh) << 32)
+                | u64::from(info.nFileIndexLow),
+        },
+        info.nNumberOfLinks,
+    ))
+}
+
 fn final_handle_path(handle: &OwnedFileHandle) -> Result<String, &'static str> {
     let mut buffer = [0u16; 1024];
     let used = unsafe {
@@ -138,8 +169,13 @@ fn inspect_synthetic_ancestor_chain(
         return Err("invalid_fixture_path");
     }
     let mut opened = Vec::with_capacity(components.len());
+    let mut seen_identities = std::collections::HashSet::new();
     for directory in components.into_iter().rev() {
         let handle = verify_plain_directory(directory)?;
+        let (identity, _) = identity_and_link_count(&handle)?;
+        if !seen_identities.insert(identity) {
+            return Err("fixture_identity_denied");
+        }
         // Check every native handle independently. Windows can normalize
         // short-name/volume aliases differently across adjacent components;
         // comparing adjacent *display path strings* incorrectly rejects
@@ -166,6 +202,11 @@ fn inspect_test_child(root: &Path, basename: &str) -> Result<(), &'static str> {
     let attrs = attribute_tag(&child)?;
     if attrs.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
         return Err("fixture_reparse_denied");
+    }
+    let (child_id, hardlink_count) = identity_and_link_count(&child)?;
+    let (root_id, _) = identity_and_link_count(root_handle)?;
+    if child_id == root_id || hardlink_count != 1 {
+        return Err("fixture_identity_denied");
     }
     let child_final = final_handle_path(&child)?;
     let expected = format!("{}\\{basename}", root_final.trim_end_matches('\\'));
@@ -290,4 +331,72 @@ fn component_walk_does_not_expose_a_tauri_command_or_modify_files() {
     std::fs::write(&target, b"read-only test fixture").unwrap();
     assert_eq!(inspect_test_child(folder.path(), "sample.whl"), Ok(()));
     assert_eq!(std::fs::read(&target).unwrap(), b"read-only test fixture");
+}
+
+#[test]
+fn two_handles_to_same_mock_have_same_kernel_identity() {
+    let fixture = tempfile::tempdir().unwrap();
+    let sample = fixture.path().join("sample.whl");
+    std::fs::write(&sample, b"synthetic bytes only").unwrap();
+    let first = open_reparse_point_itself(&sample, false).unwrap();
+    let second = open_reparse_point_itself(&sample, false).unwrap();
+    let (a, a_links) = identity_and_link_count(&first).unwrap();
+    let (b, b_links) = identity_and_link_count(&second).unwrap();
+    assert_eq!(a, b);
+    assert_eq!(a_links, 1);
+    assert_eq!(b_links, 1);
+    assert_eq!(inspect_test_child(fixture.path(), "sample.whl"), Ok(()));
+}
+
+#[test]
+fn distinct_mock_files_have_different_kernel_identity() {
+    let fixture = tempfile::tempdir().unwrap();
+    let sample = fixture.path().join("sample.whl");
+    let marker = fixture.path().join("fixture.marker");
+    std::fs::write(&sample, b"mock wheel").unwrap();
+    std::fs::write(&marker, b"mock marker").unwrap();
+    let first = open_reparse_point_itself(&sample, false).unwrap();
+    let second = open_reparse_point_itself(&marker, false).unwrap();
+    let (a, _) = identity_and_link_count(&first).unwrap();
+    let (b, _) = identity_and_link_count(&second).unwrap();
+    assert_ne!(a, b);
+}
+
+#[test]
+fn hardlink_to_synthetic_fixture_is_denied_without_touching_target() {
+    let fixture = tempfile::tempdir().unwrap();
+    let original = fixture.path().join("original.bin");
+    std::fs::write(&original, b"hardlink target bytes").unwrap();
+    let alias = fixture.path().join("sample.whl");
+    match std::fs::hard_link(&original, &alias) {
+        Ok(()) => {
+            let alias_handle = open_reparse_point_itself(&alias, false).unwrap();
+            let (identity, links) = identity_and_link_count(&alias_handle).unwrap();
+            assert!(links >= 2);
+            let original_handle = open_reparse_point_itself(&original, false).unwrap();
+            assert_eq!(identity, identity_and_link_count(&original_handle).unwrap().0);
+            assert_eq!(
+                inspect_test_child(fixture.path(), "sample.whl"),
+                Err("fixture_identity_denied")
+            );
+            assert_eq!(std::fs::read(&original).unwrap(), b"hardlink target bytes");
+        }
+        Err(err) if matches!(err.kind(), std::io::ErrorKind::PermissionDenied
+            | std::io::ErrorKind::Unsupported) => {
+            // Filesystem or runner does not support this disposable hardlink.
+        }
+        Err(err) => panic!("unexpected local synthetic hardlink setup failure: {err}"),
+    }
+}
+
+#[test]
+fn no_path_authorization_from_matching_identity_alone() {
+    let fixture = tempfile::tempdir().unwrap();
+    let original = fixture.path().join("original.bin");
+    std::fs::write(&original, b"not an authorized basename").unwrap();
+    assert_eq!(
+        inspect_test_child(fixture.path(), "original.bin"),
+        Err("invalid_fixture_path")
+    );
+    assert_eq!(std::fs::read(&original).unwrap(), b"not an authorized basename");
 }
