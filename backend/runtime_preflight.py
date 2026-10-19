@@ -16,13 +16,15 @@ SAFE_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+!-]{0,63}\Z")
 
 
 def dependency_inventory(
-    read_version: Callable[[str], str] = metadata.version,
+    read_version: Callable[[str], str] | None = None,
 ) -> dict:
     """Examine only installed-distribution metadata, not importable modules.
 
     Present package != compatible CUDA runtime or executable inference engine.
     Any unexpected metadata failure is explicitly unknown (never 'ready').
     """
+    if read_version is None:
+        read_version = metadata.version
     results: list[dict] = []
     for name in PACKAGES:
         version = None
