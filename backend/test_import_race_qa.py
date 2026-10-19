@@ -51,15 +51,9 @@ def test_concurrent_metadata_writes_are_serialized(tmp_path):
         save_manifest_entry(store, *pair)
     with ThreadPoolExecutor(max_workers=6) as pool:
         list(pool.map(persist, entries[:6]))
-        list(pool.map(save_pair, []))  # pure no-op; no extra workers
     for pair in entries[6:]:
         save_manifest_entry(store, *pair)
     assert set(read_manifest(store, strict=True)) == {key for key, _ in entries}
-
-
-def save_pair(pair):
-    # Not invoked; keep ThreadPoolExecutor mock-less.
-    return pair
 
 
 def test_source_path_swap_after_open_keeps_original_validated_bytes(tmp_path, monkeypatch):
