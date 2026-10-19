@@ -130,6 +130,7 @@ def test_wrong_metadata_or_wheel_tags_fail(target, data):
     "../outside.py", "/etc/passwd", "C:/Windows/win.ini",
     "torch\\..\\evil.py", "torch/../evil.py", "torch//evil.py",
     "torch/tail. ", "torch/file.py\nInjected",
+    "torch/CON.txt", "torch/COM1.py", "torch/한글.py",
 ])
 def test_unsafe_zip_member_names_rejected(attack):
     deny(fixture_wheel(entries=[
@@ -147,6 +148,40 @@ def test_duplicate_central_directory_entry_rejected():
         (METADATA, b"Metadata-Version: 2.1\nName: torch\nVersion: 2.6.0+cu124\n"),
         ("torch/__init__.py", b"overridden"),
     ]))
+
+
+def test_case_folded_duplicate_archive_members_rejected():
+    deny(fixture_wheel(entries=[
+        ("torch/__init__.py", b"x=1"),
+        ("TORCH/__init__.py", b"x=2"),
+        (WHEEL, b"Wheel-Version: 1.0\\nRoot-Is-Purelib: false\\nTag: cp312-cp312-win_amd64\\n"),
+        (METADATA, b"Metadata-Version: 2.1\\nName: torch\\nVersion: 2.6.0+cu124\\n"),
+    ]))
+
+
+def test_existing_synthetic_sha_gate_then_archive_structure_check(tmp_path):
+    import json
+    from inference_wheel_fixture_integrity import (
+        FIXTURE_MARKER, MARKER_BYTES, verify_synthetic_fixture,
+    )
+    root = tmp_path / "qa-fixture"
+    root.mkdir()
+    payload = fixture_wheel()
+    (root / FIXTURE_MARKER).write_bytes(MARKER_BYTES)
+    (root / NAME).write_bytes(payload)
+    record = json.dumps({
+        "schema_version": 1, "platform": "windows_x86_64",
+        "python_version": "3.12",
+        "destination_kind": "user_selected_private_venv",
+        "wheels": [{
+            "package": "torch", "version": "2.6.0+cu124",
+            "filename": NAME, "sha256": hashlib.sha256(payload).hexdigest(),
+            "declared_bytes": len(payload),
+        }],
+    }).encode("utf-8")
+    assert verify_synthetic_fixture(record, root)["status"] == "synthetic_fixture_verified"
+    assert inspect_synthetic_wheel(payload, NAME)["status"] == "synthetic_archive_structure_verified"
+    assert (root / NAME).read_bytes() == payload
 
 
 def test_synthetic_zip_bomb_rejected_before_decompression():
