@@ -67,6 +67,9 @@ jobs:
       - name: Validate Windows NSIS QA overlay and production policy (no installer)
         shell: pwsh
         run: ./scripts/windows-nsis-bundle-qa.ps1
+      - name: Validate isolated two-version NSIS overlay (no install or GUI)
+        shell: pwsh
+        run: ./scripts/windows-version-upgrade-config-qa.ps1
       - name: Verify Rust toolchain
         run: rustc --version
       - name: Validate committed Rust dependency graph without changing Cargo.lock
