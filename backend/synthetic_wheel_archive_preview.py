@@ -42,8 +42,17 @@ def _archive_path(name: str) -> bool:
         return False
     if any(c in name for c in ("\r", "\n", "\t")):
         return False
+    if re.fullmatch(r"[A-Za-z0-9_+./-]+", name) is None:
+        return False
     segments = name.split("/")
-    return all(p not in ("", ".", "..") and not p.endswith((" ", ".")) for p in segments)
+    reserved = {"con", "prn", "aux", "nul"} | {
+        f"{prefix}{index}" for prefix in ("com", "lpt") for index in range(1, 10)
+    }
+    return all(
+        p not in ("", ".", "..") and not p.endswith((" ", "."))
+        and p.split(".", 1)[0].casefold() not in reserved
+        for p in segments
+    )
 
 
 def _record_digest(payload: bytes) -> str:
@@ -113,11 +122,14 @@ def inspect_synthetic_wheel(archive_bytes: bytes, filename: str, *,
             if not 3 <= len(infos) <= MAX_ENTRIES or archive.comment:
                 _reject()
             extracted: dict[str, bytes] = {}
+            normalized_names: set[str] = set()
             declared_total = 0
             for info in infos:
                 name = info.filename
-                if name in extracted or not _archive_path(name) or info.is_dir():
+                if (name.casefold() in normalized_names
+                        or not _archive_path(name) or info.is_dir()):
                     _reject()
+                normalized_names.add(name.casefold())
                 if info.flag_bits & (0x01 | 0x08) or info.compress_type not in (
                         zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
                     _reject()
