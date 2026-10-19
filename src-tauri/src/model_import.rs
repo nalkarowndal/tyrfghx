@@ -373,6 +373,102 @@ mod tests {
         assert!(!root.join(".integrity-write.lockdir").exists());
     }
 
+
+    // An actual independent Python 3.12 child imports the same lock module
+    // used by the Python CLI, while this Rust process uses ManifestWriteGuard.
+    // The test touches only a disposable tmp directory, not user models.
+    #[cfg(windows)]
+    #[test]
+    fn windows_python_and_rust_manifest_lock_interoperate() {
+        use std::process::{Command, Stdio};
+        use std::sync::mpsc::{self, RecvTimeoutError};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("models");
+        fs::create_dir(&root).unwrap();
+        let backend = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend");
+
+        const PY_HOLDS_LOCK: &str = r#"
+import pathlib, sys, time
+sys.path.insert(0, sys.argv[2])
+from model_manifest_lock import exclusive_manifest_write
+root = pathlib.Path(sys.argv[1])
+with exclusive_manifest_write(root):
+    (root / "python-held.flag").write_text("acquired")
+    deadline = time.monotonic() + 7
+    while not (root / "rust-release.flag").exists():
+        if time.monotonic() > deadline:
+            raise TimeoutError("Rust did not release cross-language lock test")
+        time.sleep(0.02)
+"#;
+        let mut py = Command::new("python")
+            .args(["-u", "-c", PY_HOLDS_LOCK])
+            .arg(&root).arg(&backend)
+            .stdout(Stdio::null()).stderr(Stdio::piped())
+            .spawn().expect("Python 3.12 must be installed by Windows Rust CI");
+        let mut ready = false;
+        for _ in 0..250 {
+            if root.join("python-held.flag").exists() {
+                ready = true;
+                break;
+            }
+            if py.try_wait().unwrap().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(ready, "Python did not acquire the shared manifest guard");
+
+        let writer_root = root.clone();
+        let (tx, rx) = mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let result = record_snapshot(
+                &writer_root, "loras/cross-process.safetensors",
+                &"a".repeat(64), 128, 42,
+            );
+            tx.send(result).unwrap();
+        });
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_millis(175)),
+            Err(RecvTimeoutError::Timeout)
+        ), "Rust writer bypassed Python's held lock");
+        fs::write(root.join("rust-release.flag"), b"go").unwrap();
+        assert!(rx.recv_timeout(Duration::from_secs(6)).unwrap().is_ok());
+        thread.join().unwrap();
+        let output = py.wait_with_output().unwrap();
+        assert!(output.status.success(), "Python holder failed: {}",
+                String::from_utf8_lossy(&output.stderr));
+        assert!(!root.join(".integrity-write.lockdir").exists());
+
+        const PY_WAITS_ON_RUST: &str = r#"
+import pathlib, sys
+sys.path.insert(0, sys.argv[2])
+from model_manifest_lock import exclusive_manifest_write
+root = pathlib.Path(sys.argv[1])
+with exclusive_manifest_write(root):
+    (root / "python-after-rust.flag").write_text("acquired")
+"#;
+        let held = ManifestWriteGuard::acquire(&root).unwrap();
+        let child = Command::new("python")
+            .args(["-u", "-c", PY_WAITS_ON_RUST])
+            .arg(&root).arg(&backend)
+            .stdout(Stdio::null()).stderr(Stdio::piped())
+            .spawn().unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!root.join("python-after-rust.flag").exists(),
+                "Python bypassed Rust's held manifest lock");
+        drop(held);
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "Python writer failed: {}",
+                String::from_utf8_lossy(&output.stderr));
+        assert!(root.join("python-after-rust.flag").exists());
+        assert!(!root.join(".integrity-write.lockdir").exists());
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(root.join("integrity.json")).unwrap()
+        ).unwrap();
+        assert!(manifest["models"]["loras/cross-process.safetensors"].is_object());
+    }
+
     #[test]
     fn broken_registry_is_rejected_before_model_is_published() {
         let temp = tempfile::tempdir().unwrap();
