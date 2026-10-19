@@ -23,6 +23,37 @@ try {
   if (-not (Test-Path -LiteralPath $application)) { throw 'installed_qa: app_missing' }
   python (Join-Path $repo 'scripts/backend-bundle-manifest.py') (Join-Path $install 'backend') --verify
   if ($LASTEXITCODE -ne 0) { throw 'installed_qa: payload_verification_failed' }
+
+  # M3-41: same-version, same-directory /UPDATE repair on a disposable runner.
+  # This is NOT a distinct-version upgrade or automatic updater acceptance.
+  # No process is running yet; all payload and data checks precede GUI launch.
+  $backendExecutable = Join-Path $install 'backend/aiimage-backend.exe'
+  if (-not (Test-Path -LiteralPath $backendExecutable -PathType Leaf)) {
+    throw 'installed_qa: backend_before_repair_missing'
+  }
+  $originalAppHash = (Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash
+  $originalBackendHash = (Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256).Hash
+  $repair = Start-Process -FilePath $installer[0].FullName -ArgumentList "/S /UPDATE /D=$install" -PassThru
+  if (-not $repair.WaitForExit(90000) -or $repair.ExitCode -ne 0) {
+    throw 'installed_qa: same_version_repair_failed'
+  }
+  if (-not (Test-Path -LiteralPath $application -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $backendExecutable -PathType Leaf) -or
+      -not (Test-Path -LiteralPath (Join-Path $install 'uninstall.exe') -PathType Leaf)) {
+    throw 'installed_qa: repair_payload_missing'
+  }
+  if ((Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash -ne $originalAppHash -or
+      (Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256).Hash -ne $originalBackendHash) {
+    throw 'installed_qa: repair_payload_changed_unexpectedly'
+  }
+  python (Join-Path $repo 'scripts/backend-bundle-manifest.py') (Join-Path $install 'backend') --verify
+  if ($LASTEXITCODE -ne 0) { throw 'installed_qa: repair_manifest_failed' }
+  if ([IO.File]::ReadAllText($sentinel) -ne 'synthetic preservation fixture' -or
+      [IO.File]::ReadAllText($outputSentinel) -ne 'synthetic output fixture') {
+    throw 'installed_qa: repair_user_data_changed'
+  }
+  Write-Output 'installed_qa: same_version_update_mode_repair_preserved_app_backend_models_and_outputs'
+
   Add-Type -AssemblyName UIAutomationClient
   Add-Type -AssemblyName UIAutomationTypes
   # NSIS creates its checkbox dynamically with CreateWindowEx. Its Win32 style
