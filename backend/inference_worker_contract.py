@@ -43,7 +43,7 @@ def parse_describe_request(frame: bytes) -> dict:
         body = json.loads(frame.decode("utf-8"), object_pairs_hook=_no_duplicate_keys)
     except ProtocolReject:
         raise
-    except (UnicodeError, ValueError, TypeError):
+    except (UnicodeError, ValueError, TypeError, RecursionError):
         raise ProtocolReject("invalid_json") from None
     if type(body) is not dict or frozenset(body) != _REQUEST_KEYS:
         raise ProtocolReject("invalid_request_shape")
