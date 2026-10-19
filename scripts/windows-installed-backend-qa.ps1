@@ -114,6 +114,46 @@ try {
       throw 'installed_qa: upgraded_user_data_changed'
     }
     Write-Output 'installed_qa: two_version_0_1_0_to_0_1_1_upgrade_preserved_backend_models_and_outputs'
+
+    # M3-43: try to re-run the original older signed-OFF installer AFTER 0.1.1
+    # has been verified. The explicit NSIS allowDowngrades=false overlay
+    # must reject silent /UPDATE before changing any installed payload.
+    # The app is not running; this test affects only owned runner fixtures.
+    $newAppHash = (Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash
+    $newBackendHash = (Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256).Hash
+    $beforeRejectUninstallHash = (Get-FileHash -LiteralPath (Join-Path $install 'uninstall.exe') -Algorithm SHA256).Hash
+    $oldInstaller = $installer[0].FullName
+    if ($oldInstaller -ne $oldPath) {
+      throw 'installed_qa: rejected_downgrade_source_mismatch'
+    }
+    $rejected = Start-Process -FilePath $oldInstaller -ArgumentList "/S /UPDATE /D=$install" -PassThru
+    if (-not $rejected.WaitForExit(90000)) {
+      try { Stop-Process -Id $rejected.Id -Force -ErrorAction Stop } catch {}
+      throw 'installed_qa: rejected_downgrade_timeout'
+    }
+    if ($rejected.ExitCode -eq 0) {
+      throw 'installed_qa: rejected_downgrade_returned_success'
+    }
+    if ((Get-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion).DisplayVersion -ne '0.1.1') {
+      throw 'installed_qa: rejected_downgrade_changed_registered_version'
+    }
+    if (-not (Test-Path -LiteralPath $application -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $backendExecutable -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $install 'uninstall.exe') -PathType Leaf)) {
+      throw 'installed_qa: rejected_downgrade_removed_payload'
+    }
+    if ((Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash -ne $newAppHash -or
+        (Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256).Hash -ne $newBackendHash -or
+        (Get-FileHash -LiteralPath (Join-Path $install 'uninstall.exe') -Algorithm SHA256).Hash -ne $beforeRejectUninstallHash) {
+      throw 'installed_qa: rejected_downgrade_mutated_payload'
+    }
+    python (Join-Path $repo 'scripts/backend-bundle-manifest.py') (Join-Path $install 'backend') --verify
+    if ($LASTEXITCODE -ne 0) { throw 'installed_qa: rejected_downgrade_backend_manifest_failed' }
+    if ([IO.File]::ReadAllText($sentinel) -ne 'synthetic preservation fixture' -or
+        [IO.File]::ReadAllText($outputSentinel) -ne 'synthetic output fixture') {
+      throw 'installed_qa: rejected_downgrade_mutated_user_data'
+    }
+    Write-Output 'installed_qa: older_0_1_0_downgrade_rejected_0_1_1_payload_and_data_unchanged'
   }
 
   Add-Type -AssemblyName UIAutomationClient
