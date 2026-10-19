@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/m3-44-preinstall-fault.nsh"
+      }
+    }
+  }
+}
