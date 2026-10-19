@@ -61,7 +61,7 @@ jobs:
         run: |
           $folder = Join-Path $PWD 'src-tauri/target/release/bundle/nsis'
           $old = @(Get-ChildItem -LiteralPath $folder -Filter '*setup.exe' -File)
-          if ($old.Count -ne 1 -or $old[0].Name -notmatch '0\\.1\\.0') { throw 'version_upgrade_qa: old_installer_invalid' }
+          if ($old.Count -ne 1 -or $old[0].Name -notmatch '0\.1\.0') { throw 'version_upgrade_qa: old_installer_invalid' }
           $destination = Join-Path $env:RUNNER_TEMP 'aiimage-m3-42-original-setup.exe'
           if (Test-Path -LiteralPath $destination) { throw 'version_upgrade_qa: runner_temp_collision' }
           Move-Item -LiteralPath $old[0].FullName -Destination $destination
