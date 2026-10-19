@@ -8,6 +8,8 @@ use std::{
     fs::{self, File},
     io::{Read, Write},
     path::{Path, PathBuf},
+    time::{Duration, Instant},
+    thread,
 };
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
@@ -62,7 +64,64 @@ fn check_header(source: &mut File, size: u64) -> Result<(), String> {
     Ok(())
 }
 
+// Same exact cooperative directory lock used by backend/model_manifest_lock.py.
+// This stops two cooperating processes from losing each other's JSON writes,
+// but is NOT a hostile-filesystem/ACL/race-free guarantee. A crash leaves
+// a lock directory requiring explicit user repair; never auto-break it.
+struct ManifestWriteGuard {
+    path: PathBuf,
+}
+
+impl ManifestWriteGuard {
+    fn acquire(root: &Path) -> Result<Self, String> {
+        let lock = root.join(".integrity-write.lockdir");
+        let start = Instant::now();
+        loop {
+            match fs::create_dir(&lock) {
+                Ok(()) => return Ok(Self { path: lock }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if lock.is_symlink() || !lock.is_dir() {
+                        return Err("Unsafe integrity registry lock".into());
+                    }
+                    if start.elapsed() >= Duration::from_secs(10) {
+                        return Err("Integrity registry busy; inspect stale lock manually".into());
+                    }
+                    thread::sleep(Duration::from_millis(25));
+                }
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+    }
+}
+
+impl Drop for ManifestWriteGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir(&self.path);
+    }
+}
+
+fn validate_existing_manifest(root: &Path) -> Result<(), String> {
+    let path = root.join("integrity.json");
+    if path.is_symlink() {
+        return Err("Unsafe manifest symlink".into());
+    }
+    if path.exists() {
+        if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_MANIFEST {
+            return Err("Integrity registry too large".into());
+        }
+        let data: serde_json::Value = serde_json::from_slice(
+            &fs::read(&path).map_err(|e| e.to_string())?
+        ).map_err(|_| "Damaged integrity registry")?;
+        if data.get("schema_version").and_then(|x| x.as_u64()) != Some(1)
+            || !data.get("models").is_some_and(|x| x.is_object()) {
+            return Err("Invalid integrity registry schema".into());
+        }
+    }
+    Ok(())
+}
+
 fn record_snapshot(root: &Path, id: &str, hash: &str, size: u64, mtime: u64) -> Result<(), String> {
+    let _write_guard = ManifestWriteGuard::acquire(root)?;
     let manifest = root.join("integrity.json");
     if manifest.is_symlink() {
         return Err("Integrity manifest symlink blocked".into());
@@ -122,6 +181,7 @@ fn import_selected_file(source: &Path, category: &str, root: &Path) -> Result<Im
     ensure_real_directory(root)?;
     let dest_folder = root.join(category);
     ensure_real_directory(&dest_folder)?;
+    validate_existing_manifest(root)?;
     let dest = dest_folder.join(name);
     if dest.exists() || dest.is_symlink() {
         return Err("A model with the same name already exists; refusing overwrite".into());
@@ -152,9 +212,10 @@ fn import_selected_file(source: &Path, category: &str, root: &Path) -> Result<Im
         .as_nanos() as u64;
     let id = format!("{category}/{name}");
     if let Err(error) = record_snapshot(root, &id, &hash, copied, mtime) {
-        // Do not claim a registered import when its manifest could not be stored.
-        let _ = fs::remove_file(&dest);
-        return Err(error);
+        // Never unlink a user-visible pathname on rollback. Another process
+        // may have replaced it after our no-clobber publish. Keeping an
+        // unregistered copy is safer than deleting somebody else's file.
+        return Err(format!("Model copy retained; manifest registration failed: {error}"));
     }
     Ok(ImportResult { model_id: id, sha256: hash, size_bytes: copied })
 }
