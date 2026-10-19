@@ -43,6 +43,12 @@ and integration hold [Issue #60](https://github.com/nalkarowndal/tyrfghx/issues/
   the final-component symbolic link/reparse point. An attacker could still
   race the **ancestor directory** path or replace filesystem objects; a
   full trusted-root handle-relative Win32 traversal is NOT implemented.
+- A new Python **read-only catalog regression** deliberately fails the
+  `integrity.json` registration after publishing a tiny valid synthetic
+  safetensors file, then confirms `scan_models` still lists that file as
+  `integrity_state="not_recorded"` with no trusted recorded SHA and does
+  not create/repair a manifest or modify the copied bytes. This is a
+  *manual reconciliation diagnostic*, not an auto-repair feature.
 - The Rust and Python failures preserve any copied-but-unregistered files
   rather than risking the wrong unlink; future UI should expose a local,
   owner-approved reconciliation flow after checking live hashes.
