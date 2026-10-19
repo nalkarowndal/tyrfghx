@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-42 (unsigned two-version Windows NSIS upgrade QA).**
+> **Current milestone: M3-43 (safe rejection of an older Windows NSIS installer).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -12,6 +12,19 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 > NSIS overlay bundles an authenticated **read-only** Python API and passed
 > installed Windows GUI checks; CUDA inference packaging, clean-machine
 > device validation, signed distribution, and owner-GPU testing remain open.
+
+## M3-43: reject unauthorized downgrade and preserve installed data
+
+The two *test-only, unsigned* NSIS installers use a separate
+`allowDowngrades=false` configuration overlay. After the isolated
+Windows test installs 0.1.0 and updates to 0.1.1, it attempts the old
+0.1.0 installer again in silent `/UPDATE` mode, requiring a rejected
+nonzero return code, unchanged 0.1.1 registry registration, intact
+app/backend/uninstaller SHA-256 and unchanged synthetic model and
+output files. Actual installed GUI restart, API security and uninstall
+preservation are rechecked afterward. This is downgrade prevention,
+**not** recovery from a partial or failed upgrade. See
+[M3-43 Windows NSIS downgrade rejection QA](docs/M3_WINDOWS_NSIS_DOWNGRADE_GUARD_QA.md).
 
 ## M3-42: test a real two-version NSIS update without publishing releases
 
