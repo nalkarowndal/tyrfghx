@@ -57,6 +57,11 @@ if ($source -notmatch [regex]::Escape('!include "${__FILEDIR__}\preserve-data.ns
     $source -notmatch 'AIIMAGE_M3_44_ABORT_PREINSTALL' -or
     $source -notmatch 'SetErrorLevel 83' -or
     $source -notmatch '(?m)^\s+Quit\s*
+    $source -match '(?m)^\s*(File|Delete|RMDir|WriteReg|Exec|ExecWait)\b') {
+  throw "upgrade_config_qa: preinstall_abort_or_preserve_hook_invalid"
+}
+Write-Output "upgrade_config_qa: disposable_preinstall_failure_hook_isolated"
+Write-Output "upgrade_config_qa: safe_version_overlay_only"
  -or
     $source -match '(?m)^\s*(File|Delete|RMDir|WriteReg|Exec|ExecWait)\b') {
   throw "upgrade_config_qa: preinstall_abort_or_preserve_hook_invalid"
