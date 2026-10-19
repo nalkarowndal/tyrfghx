@@ -9,6 +9,10 @@ mod gpu_diagnostics;
 mod vram_safety;
 mod backend_runtime;
 
+// CPU-only Win32 subprocess/pipe QA; compiled into tests ONLY.
+#[cfg(all(test, windows))]
+mod inference_worker_stdio_qa;
+
 // The embedded HTTP test server must never activate by a Cargo feature alone.
 // Validate the complete opt-in policy independently of Tauri or network I/O.
 #[cfg(any(test, feature = "e2e-webdriver"))]
