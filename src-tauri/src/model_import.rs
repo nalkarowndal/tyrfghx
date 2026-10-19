@@ -469,6 +469,87 @@ with exclusive_manifest_write(root):
         assert!(manifest["models"]["loras/cross-process.safetensors"].is_object());
     }
 
+    /// Unlike the lock-only test above, this runs the *actual* Python
+    /// Pydantic-backed manifest writer against Rust's record_snapshot.
+    /// All registry IDs are synthetic; no model files are opened.
+    #[cfg(windows)]
+    #[test]
+    fn windows_python_and_rust_real_manifest_writes_preserve_both_entries() {
+        use std::process::{Command, Stdio};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("models");
+        fs::create_dir(&root).unwrap();
+        let backend = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend");
+        record_snapshot(
+            &root, "loras/rust-first.safetensors", &"a".repeat(64), 19, 21,
+        ).unwrap();
+
+        // Hold Rust's shared lock while an independent Python 3.12
+        // interpreter attempts to update the existing manifest.
+        let held = ManifestWriteGuard::acquire(&root).unwrap();
+        const PY_REAL_WRITER: &str = r#"
+import pathlib, sys
+sys.path.insert(0, sys.argv[2])
+from model_integrity import IntegrityEntry, save_manifest_entry
+root = pathlib.Path(sys.argv[1])
+(root / "python-writer-ready.flag").write_text("started")
+save_manifest_entry(
+    root, "loras/python-second.safetensors",
+    IntegrityEntry(sha256="b" * 64, size_bytes=23, mtime_ns=29),
+)
+(root / "python-writer-done.flag").write_text("finished")
+"#;
+        let mut child = Command::new("python")
+            .args(["-u", "-c", PY_REAL_WRITER])
+            .arg(&root).arg(&backend)
+            .stdout(Stdio::null()).stderr(Stdio::piped())
+            .spawn().expect("Python 3.12 required by Windows Rust CI");
+        let mut ready = false;
+        for _ in 0..250 {
+            if root.join("python-writer-ready.flag").exists() {
+                ready = true;
+                break;
+            }
+            if child.try_wait().unwrap().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if !ready {
+            drop(held);
+            let output = child.wait_with_output().unwrap();
+            panic!("Python Pydantic writer could not start: {}", String::from_utf8_lossy(&output.stderr));
+        }
+        assert!(
+            !root.join("python-writer-done.flag").exists(),
+            "Python committed a manifest while Rust held the guard"
+        );
+        let before: serde_json::Value = serde_json::from_slice(
+            &fs::read(root.join("integrity.json")).unwrap()
+        ).unwrap();
+        assert_eq!(before["models"].as_object().unwrap().len(), 1);
+
+        drop(held);
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "Python writer failed: {}",
+                String::from_utf8_lossy(&output.stderr));
+        assert!(root.join("python-writer-done.flag").exists());
+
+        record_snapshot(
+            &root, "loras/rust-third.safetensors", &"c".repeat(64), 31, 37,
+        ).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(
+            &fs::read(root.join("integrity.json")).unwrap()
+        ).unwrap();
+        let entries = saved["models"].as_object().unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries["loras/rust-first.safetensors"]["sha256"], "a".repeat(64));
+        assert_eq!(entries["loras/python-second.safetensors"]["sha256"], "b".repeat(64));
+        assert_eq!(entries["loras/rust-third.safetensors"]["sha256"], "c".repeat(64));
+        assert!(!root.join(".integrity-write.lockdir").exists());
+    }
+
     #[test]
     fn broken_registry_is_rejected_before_model_is_published() {
         let temp = tempfile::tempdir().unwrap();
