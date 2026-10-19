@@ -31,6 +31,16 @@ CUDA, access model files or unlock image generation. See
 M4-1 remains a provisional Draft stacked on the **unmerged**
 M3-Final PR; `main` is unchanged.
 
+## M4-1b: offline one-shot parent authentication proof (no IPC yet)
+
+A separate Draft M4-1b increment adds a CPU-only HMAC-SHA256
+challenge-response verifier with strictly bounded, sanitized proof frames,
+single-attempt replay rejection, and hostile-input tests. This **does not**
+start or authenticate a real native-owned process, open a network port, install
+packages or enable GPU/model execution. Real private parent-worker transport,
+Windows Job Object ownership and isolated runtime installation are still
+future reviewed steps. See [M4-1b security boundary](docs/M4_PARENT_AUTH_PROOF_PREVIEW.md).
+
 ## M3-Final: freeze M3 and audit before M4
 
 M3-46 completed **four ordinary CI jobs** and the **real hosted Windows
