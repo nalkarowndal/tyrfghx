@@ -65,11 +65,16 @@ def test_cancel_never_parses_request_or_performs_side_effects():
 
 @pytest.mark.parametrize("bad", [
     b"", b"{}", b"[]", b"not json", b"\xff",
-    b"x" * (MAX_BYTES + 1),
     b'{"schema_version":1,"schema_version":1}',
 ])
-def test_bad_or_overlong_frame_fails_closed(bad):
+def test_bad_frame_fails_closed(bad):
     invalid(bad)
+
+
+def test_oversize_frame_rejected_without_large_pytest_parameter_id():
+    # Windows limits PYTEST_CURRENT_TEST environment variables to 32767 chars.
+    # Construct large input inside the test rather than in parametrization IDs.
+    invalid(b"x" * (MAX_BYTES + 1))
 
 
 @pytest.mark.parametrize("changes", [
