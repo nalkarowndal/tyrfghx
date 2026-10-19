@@ -9,7 +9,7 @@
 use std::{
     ffi::OsStr,
     os::windows::ffi::OsStrExt,
-    path::Path,
+    path::{Component, Path, Prefix},
     ptr,
 };
 use windows_sys::Win32::{
@@ -104,14 +104,70 @@ fn verify_plain_directory(path: &Path) -> Result<OwnedFileHandle, &'static str> 
     Ok(handle)
 }
 
+/// Reject UNC, device namespace, verbatim, drive-relative and dot-parent
+/// fixture paths BEFORE any file handles are acquired.  This is a narrow
+/// synthetic-only drive-local test policy, not general Windows path policy.
+fn validate_synthetic_drive_root(root: &Path) -> Result<(), &'static str> {
+    if !root.is_absolute() {
+        return Err("invalid_fixture_path");
+    }
+    let mut parts = root.components();
+    if !matches!(parts.next(), Some(Component::Prefix(prefix))
+                 if matches!(prefix.kind(), Prefix::Disk(_)))
+        || !matches!(parts.next(), Some(Component::RootDir))
+        || parts.any(|part| !matches!(part, Component::Normal(_)))
+    {
+        return Err("invalid_fixture_path");
+    }
+    Ok(())
+}
+
+/// Open and retain native handles for each ancestor including the drive root
+/// and the synthetic fixture directory. The test rejects symlink/junction
+/// *components* and checks each child's final handle path versus its parent.
+/// The opens are still path-based (NOT NtCreateFile handle-relative), so this
+/// is a negative-regression test, NOT adversarial race-free production safety.
+fn inspect_synthetic_ancestor_chain(
+    root: &Path,
+) -> Result<Vec<OwnedFileHandle>, &'static str> {
+    validate_synthetic_drive_root(root)?;
+    let components: Vec<_> = root.ancestors()
+        .filter(|ancestor| ancestor.is_absolute())
+        .collect();
+    if components.is_empty() || components.len() > 32 {
+        return Err("invalid_fixture_path");
+    }
+    let mut opened = Vec::with_capacity(components.len());
+    let mut previous_final: Option<String> = None;
+    for directory in components.into_iter().rev() {
+        let handle = verify_plain_directory(directory)?;
+        let actual = final_handle_path(&handle)?;
+        if let Some(parent) = &previous_final {
+            let name = directory.file_name().ok_or("invalid_fixture_path")?;
+            let leaf = name.to_str().ok_or("invalid_fixture_path")?;
+            if leaf.is_empty() || leaf.contains(['\\', '/', ':']) {
+                return Err("invalid_fixture_path");
+            }
+            let expected = format!("{}\\{}", parent.trim_end_matches('\\'), leaf);
+            if !actual.eq_ignore_ascii_case(&expected) {
+                return Err("fixture_parent_denied");
+            }
+        }
+        previous_final = Some(actual);
+        opened.push(handle);
+    }
+    Ok(opened)
+}
+
 /// Metadata-only Win32 QA, scoped to two fixed **synthetic** basenames.
 /// No file content read, process execution, installation, or GPU access.
 fn inspect_test_child(root: &Path, basename: &str) -> Result<(), &'static str> {
-    if !root.is_absolute() || !matches!(basename, "sample.whl" | "fixture.marker") {
+    if !matches!(basename, "sample.whl" | "fixture.marker") {
         return Err("invalid_fixture_path");
     }
-    let root_handle = verify_plain_directory(root)?;
-    let root_final = final_handle_path(&root_handle)?;
+    let opened_ancestors = inspect_synthetic_ancestor_chain(root)?;
+    let root_handle = opened_ancestors.last().ok_or("invalid_fixture_path")?;
+    let root_final = final_handle_path(root_handle)?;
     // Never accept caller-computed paths. The directory and child are opened
     // as handles and the latter's final path must match the expected child.
     let candidate = root.join(basename);
@@ -178,4 +234,69 @@ fn root_directory_symlink_is_rejected() {
         Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {}
         Err(err) => panic!("unexpected synthetic directory symlink setup failure: {err}"),
     }
+}
+
+#[test]
+fn nested_synthetic_fixture_checks_each_ancestor_and_keeps_success() {
+    let parent = tempfile::tempdir().unwrap();
+    let one = parent.path().join("normal");
+    let two = one.join("nested");
+    std::fs::create_dir(&one).unwrap();
+    std::fs::create_dir(&two).unwrap();
+    std::fs::write(two.join("sample.whl"), b"synthetic").unwrap();
+    assert_eq!(inspect_test_child(&two, "sample.whl"), Ok(()));
+}
+
+#[test]
+fn traversing_grandparent_symlink_is_rejected() {
+    use std::os::windows::fs::symlink_dir;
+    let parent = tempfile::tempdir().unwrap();
+    let real = parent.path().join("real-directory");
+    let nested = real.join("nested");
+    std::fs::create_dir(&real).unwrap();
+    std::fs::create_dir(&nested).unwrap();
+    std::fs::write(nested.join("sample.whl"), b"synthetic").unwrap();
+
+    let alias = parent.path().join("aliased-parent");
+    match symlink_dir(&real, &alias) {
+        Ok(()) => {
+            // Root and file are plain objects, but an ancestor is a link.
+            assert_eq!(
+                inspect_test_child(&alias.join("nested"), "sample.whl"),
+                Err("fixture_reparse_denied")
+            );
+            assert_eq!(std::fs::read(nested.join("sample.whl")).unwrap(), b"synthetic");
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+            // Not all Windows CI workers permit creating symlink fixtures.
+        }
+        Err(err) => panic!("unexpected synthetic grandparent link setup failure: {err}"),
+    }
+}
+
+#[test]
+fn rejects_parent_traversal_unc_and_device_namespaces_before_opening() {
+    let directory = tempfile::tempdir().unwrap();
+    assert_eq!(
+        inspect_test_child(&directory.path().join("nested").join(".."), "sample.whl"),
+        Err("invalid_fixture_path")
+    );
+    for unsafe_root in [
+        r"\\server\share\synthetic",
+        r"\\?\C:\synthetic",
+        r"\\.\C:\synthetic",
+        r"C:drive-relative\synthetic",
+    ] {
+        assert_eq!(inspect_test_child(Path::new(unsafe_root), "sample.whl"),
+                   Err("invalid_fixture_path"));
+    }
+}
+
+#[test]
+fn component_walk_does_not_expose_a_tauri_command_or_modify_files() {
+    let folder = tempfile::tempdir().unwrap();
+    let target = folder.path().join("sample.whl");
+    std::fs::write(&target, b"read-only test fixture").unwrap();
+    assert_eq!(inspect_test_child(folder.path(), "sample.whl"), Ok(()));
+    assert_eq!(std::fs::read(&target).unwrap(), b"read-only test fixture");
 }
