@@ -8,8 +8,10 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
 > 30-minute watchdog, bounded in-memory diagnostics and Win32 Job Object process-group cancellation;
-> release builds and browsers still cannot start GPU jobs. Packaged backend
-> integration, driver/device validation, and native GUI testing are outstanding.
+> release builds and browsers still cannot start GPU jobs. The opt-in M3-39
+> NSIS overlay bundles an authenticated **read-only** Python API and passed
+> installed Windows GUI checks; CUDA inference packaging, clean-machine
+> device validation, signed distribution, and owner-GPU testing remain open.
 
 ## M3-40: installed app restart button and backend crash recovery acceptance
 
