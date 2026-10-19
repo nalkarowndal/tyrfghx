@@ -28,7 +28,7 @@ def _has_reparse(status: os.stat_result) -> bool:
 
 
 def _safe_fixture_root(root: Path) -> Path:
-    if type(root) is not Path or not root.is_absolute():
+    if not isinstance(root, Path) or not root.is_absolute():
         raise ValueError("invalid_fixture")
     status = os.lstat(root)
     if not stat.S_ISDIR(status.st_mode) or _has_reparse(status):
