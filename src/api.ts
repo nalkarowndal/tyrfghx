@@ -2,7 +2,28 @@ import { invoke } from '@tauri-apps/api/core';
 import { bundledBackendEnabled } from './nativeBackend';
 
 export type EngineStatus = { name: string; status: "unavailable" | "ready"; note: string };
-export type StudioStatus = { app: string; version: string; mode: string; engines: EngineStatus[] };
+export type RuntimePackage = {
+  package: string;
+  state: "detected" | "missing" | "unknown";
+  version: string | null;
+};
+export type RuntimePreflight = {
+  schema_version: number;
+  method: "distribution_metadata_only";
+  readiness: "not_verified";
+  cuda_tested: false;
+  gpu_accessed: false;
+  models_opened: false;
+  downloads_performed: false;
+  packages: RuntimePackage[];
+};
+export type StudioStatus = {
+  app: string;
+  version: string;
+  mode: string;
+  engines: EngineStatus[];
+  runtime_preflight?: RuntimePreflight;
+};
 export const API_URL = "http://127.0.0.1:8765";
 export async function getStatus(signal?: AbortSignal): Promise<StudioStatus> {
   if (await bundledBackendEnabled()) {
