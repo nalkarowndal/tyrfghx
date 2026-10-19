@@ -82,6 +82,17 @@ verifier, transitive dependency lockfile, or installation readiness.
 No production process, webview permission, download, model/GPU read or
 installer is enabled. See [M4-1f QA and limitations](docs/M4_SYNTHETIC_WHEEL_ARCHIVE_QA.md).
 
+## M4-1g: strict classic ZIP framing for synthetic Wheel fixtures only
+
+An independent **in-memory**, test-only ZIP framing pass now checks a
+single terminal EOCD, matching central-directory/local-file headers,
+contiguous records and no appended/prefixed payload, ZIP extras or
+data descriptors before M4-1f parses mock Wheel metadata/RECORD.
+This is NOT proof of production ZIP parser security or real-wheel
+installation readiness. No user package/model files, installers,
+downloaders, CUDA devices or Tauri/webview permissions are involved.
+See [M4-1g ZIP framing QA](docs/M4_SYNTHETIC_ZIP_FRAMING_QA.md).
+
 ## M3-Final: freeze M3 and audit before M4
 
 M3-46 completed **four ordinary CI jobs** and the **real hosted Windows

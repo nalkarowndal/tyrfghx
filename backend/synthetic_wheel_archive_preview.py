@@ -14,6 +14,8 @@ import re
 import stat
 import zipfile
 
+from synthetic_zip_layout_preview import inspect_synthetic_layout
+
 MAX_ARCHIVE_BYTES = 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 4 * 1024 * 1024
 MAX_ENTRIES = 32
@@ -117,6 +119,9 @@ def inspect_synthetic_wheel(archive_bytes: bytes, filename: str, *,
         prefix + "WHEEL", prefix + "METADATA", prefix + "RECORD"
     )
     try:
+        # A restrictive independent pass checks both local and central
+        # records before zipfile parses the tiny synthetic fixture.
+        inspect_synthetic_layout(archive_bytes)
         with zipfile.ZipFile(io.BytesIO(archive_bytes), "r") as archive:
             infos = archive.infolist()
             if not 3 <= len(infos) <= MAX_ENTRIES or archive.comment:
@@ -172,6 +177,7 @@ def inspect_synthetic_wheel(archive_bytes: bytes, filename: str, *,
                 "checked_entries": len(infos),
                 "record_hashes_match": True,
                 "sample_target_tag_matched": True,
+                "synthetic_local_central_framing_match": True,
                 "production_wheel_compatible": False,
                 "archive_parser_ambiguity_excluded": False,
                 "source_provenance_verified": False,
