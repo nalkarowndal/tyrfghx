@@ -20,7 +20,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
+      - run: python -m pip install -r requirements.txt
         working-directory: backend
       - run: python -m pytest -q
         working-directory: backend
+  backend-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
+        working-directory: backend
+      - run: python -m pytest -q
+        working-directory: backend
+  desktop-rust-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend validation dependencies for mixed-process fixture tests
+        run: python -m pip install -r requirements.txt
+        working-directory: backend
+      - name: Verify Rust toolchain
+        run: rustc --version
+      - name: Build and test Tauri native import code
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
