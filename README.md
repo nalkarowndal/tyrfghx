@@ -3,7 +3,7 @@
 Local-first AI image/video creative studio for Windows. Built incrementally
 with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API).
 
-> **Current milestone: M3-40 (installed Windows backend restart GUI QA).**
+> **Current milestone: M3-41 (unsigned same-version NSIS repair and data-preservation QA).**
 > M3-1 adds source code for an **opt-in local SDXL generation attempt**. A real
 > GPU image has NOT been generated or benchmarked by this development workflow.
 > Windows debug builds expose a consent-gated local Python job runner with a
@@ -12,6 +12,18 @@ with React/TypeScript/Vite (UI), Tauri 2 (desktop shell), and FastAPI (local API
 > NSIS overlay bundles an authenticated **read-only** Python API and passed
 > installed Windows GUI checks; CUDA inference packaging, clean-machine
 > device validation, signed distribution, and owner-GPU testing remain open.
+
+## M3-41: safe same-version installed Windows repair QA
+
+M3-41 extends the disposable hosted Windows NSIS installation tests with a
+**second same-version installation** using the Tauri NSIS `/UPDATE` mode.
+Without running the app during repair, the test requires the desktop
+executable, packaged read-only Python API, generated file manifest and
+both synthetic model/output fixtures to remain intact. It then proceeds
+through the prior installed GUI backend authentication, restart and
+uninstall-preservation checks. **This is not a distinct-version upgrade or
+a signed app update.** See
+[M3-41 Windows NSIS in-place repair QA](docs/M3_WINDOWS_NSIS_INPLACE_REPAIR_QA.md).
 
 ## M3-40: installed app restart button and backend crash recovery acceptance
 
