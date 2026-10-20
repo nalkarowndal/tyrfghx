@@ -44,12 +44,38 @@ fn ensure_real_directory(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+// Reject pre-existing ancestor symlinks and Windows junction/reparse points.
+// This is an additional preflight safeguard, NOT an atomic, handle-relative
+// traversal; an adversary can still replace a parent after its inspection.
+// The user-selected native-dialog source is expected to be absolute. Reject
+// dot and parent traversal rather than normalizing it through a symlink.
+#[cfg(windows)]
+fn reject_source_reparse_ancestors(source: &Path) -> Result<(), String> {
+    use std::os::windows::fs::MetadataExt;
+    use std::path::Component;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    if !source.is_absolute() ||
+        source.components().any(|part| matches!(part, Component::ParentDir | Component::CurDir))
+    {
+        return Err("Source path must be an absolute direct path".into());
+    }
+    let parent = source.parent().ok_or("Source must have an absolute parent directory")?;
+    for directory in parent.ancestors() {
+        let meta = fs::symlink_metadata(directory).map_err(|_| "Source ancestor unavailable")?;
+        if !meta.is_dir() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err("Source ancestor reparse point or non-directory rejected".into());
+        }
+    }
+    Ok(())
+}
+
 // Reject a final-component Windows reparse point on the *opened handle*
 // instead of trusting only a prior path-based is_symlink check. Ancestor
 // reparse paths and malicious concurrent filesystem mutation remain outside
 // this narrowly scoped safeguard.
 #[cfg(windows)]
 fn open_source_file(source: &Path) -> Result<File, String> {
+    reject_source_reparse_ancestors(source)?;
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
@@ -416,6 +442,55 @@ mod tests {
                 // Some Windows CI runners cannot create developer symlinks.
             }
             Err(e) => panic!("unexpected temporary symlink setup failure: {e}"),
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_preexisting_directory_reparse_alias_before_opening_source() {
+        use std::os::windows::fs::symlink_dir;
+        let tmp = tempfile::tempdir().unwrap();
+        let actual = tmp.path().join("real");
+        fs::create_dir(&actual).unwrap();
+        let actual_model = actual.join("model.safetensors");
+        example_file(&actual_model);
+        let original = fs::read(&actual_model).unwrap();
+        let alias = tmp.path().join("alias");
+        match symlink_dir(&actual, &alias) {
+            Ok(()) => {
+                let source = alias.join("model.safetensors");
+                assert!(source.is_file()); // The naive preflight would follow.
+                assert!(open_source_file(&source).is_err());
+                assert!(import_selected_file(&source, "loras", &tmp.path().join("models")).is_err());
+                assert!(!tmp.path().join("models").exists());
+                assert_eq!(fs::read(&actual_model).unwrap(), original);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                // CI runner may not have CreateSymbolicLink developer permission.
+            }
+            Err(error) => panic!("unexpected synthetic directory-link test error: {error}"),
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_grandparent_directory_alias_and_relative_source_paths() {
+        use std::os::windows::fs::symlink_dir;
+        let tmp = tempfile::tempdir().unwrap();
+        let actual = tmp.path().join("real");
+        let nested = actual.join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        let model = nested.join("model.safetensors");
+        example_file(&model);
+        assert!(open_source_file(Path::new("relative/model.safetensors")).is_err());
+        let alias = tmp.path().join("junction_like_alias");
+        match symlink_dir(&actual, &alias) {
+            Ok(()) => {
+                assert!(open_source_file(&alias.join("nested/model.safetensors")).is_err());
+                assert_eq!(fs::read(&model).unwrap().len(), fs::metadata(&model).unwrap().len() as usize);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {}
+            Err(error) => panic!("unexpected synthetic directory-link test error: {error}"),
         }
     }
 
