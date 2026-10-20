@@ -1,10 +1,23 @@
 {
   "identifier": "default",
-  "description": "Base window without privileged native permissions",
+  "description": "Main window: explicitly permitted aiimage app commands; no remote webview access",
   "windows": [
     "main"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "allow-bundled-backend-enabled",
+    "allow-backend-status",
+    "allow-restart-backend",
+    "allow-import-local-model",
+    "allow-list-local-models",
+    "allow-verify-local-model-hash",
+    "allow-list-generation-previews",
+    "allow-local-generation-supported",
+    "allow-start-local-generation",
+    "allow-check-local-generation-vram",
+    "allow-generation-job-status",
+    "allow-cancel-local-generation",
+    "allow-inspect-local-gpu"
   ]
 }
