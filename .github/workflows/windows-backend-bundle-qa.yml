@@ -3,6 +3,10 @@ on:
   push:
     branches: [feat/m3-39-windows-backend-bundle, feat/m3-40-installed-backend-restart-qa, feat/m3-41-nsis-inplace-repair-qa, feat/m3-42-nsis-version-upgrade-qa, feat/m3-43-nsis-downgrade-guard-qa, feat/m3-44-nsis-preinstall-failure-recovery-qa, feat/m3-45-readonly-ai-runtime-inventory, feat/m3-46-isolated-ai-runtime-plan, chore/m3-final-readiness-audit]
   workflow_dispatch:
+  # A label explicitly opts this PR into installing TEST-ONLY unsigned NSIS
+  # builds in a disposable hosted Windows runner. Never run this on user PCs.
+  pull_request:
+    types: [labeled]
 permissions:
   contents: read
 concurrency:
@@ -10,6 +14,11 @@ concurrency:
   cancel-in-progress: true
 jobs:
   packaged-backend:
+    # No automatic installed-app runs on ordinary PR pushes/synchronization.
+    # Require same-repository PR + opt-in label, or the existing historical
+    # branch push and manual dispatch paths. Unsigned runner artifacts are
+    # NOT uploaded, signed, or released by this workflow.
+    if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'run-packaged-backend-qa')) }}
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
