@@ -13,6 +13,15 @@
 - **Manually reconciled** `.github/workflows/ci.yml`: preserved the later M3-Final release audit, npm audit, locked Rust build, Windows policy checks and frontend tests. Added backend Python dependencies in the Windows native Rust test job for real cross-language Pydantic writer QA.
 - A two-parent candidate history, if present, is solely an isolated Git history convergence. It is **not** a GitHub PR merge, a change to `main`, review approval or permission for package installations.
 
+
+## 2026-10-20: installed QA + selected-source ancestor preflight
+
+- [Full packaged/backend NSIS installed Windows runner #39352502314](https://github.com/nalkarowndal/tyrfghx/actions/runs/39352502314) **SUCCESS** at commit b2c562988570bb7dd109aa36ed8bcd218de57f97: built two unsigned NSIS installers with frozen authenticated API and verified 89 packaged files. Actual installed-app runner checked same-version repair, forward upgrade, rejected downgrade, preinstall abort/retry, backend crash/restart GUI, and uninstall without removing model/output fixture data. The installed app was NOT distributed, and no owner machine, GPU or real model was used.
+- [Latest prior PR #66 exact-head CI #39352759907](https://github.com/nalkarowndal/tyrfghx/actions/runs/39352759907) **4/4 SUCCESS** at ba1e651c4ea6fca65d3e52fb12713f6ff276b7d6: frontend 18 files, Linux Python 421 tests, Windows Python 420 tests, Windows Rust 75 tests. Production CSP and 13 local-main-scoped Tauri command permissions were included.
+- Exact-head Windows [embedded GUI #39353770690](https://github.com/nalkarowndal/tyrfghx/actions/runs/39353770690) and [installed packaged backend #39353770817](https://github.com/nalkarowndal/tyrfghx/actions/runs/39353770817) were initiated on ba1e651c; check actual GitHub conclusion before marking these PASS. Earlier standalone external tauri-driver produced a session attach error despite a real release main window and matching Edge driver; do not misstate this as an app startup failure.
+- Added native Windows selected-file parent preflight before the existing file handle's final-component FILE_FLAG_OPEN_REPARSE_POINT open. It rejects already-present symlink/NTFS reparse parent directories and requires an absolute path without dot/parent traversal. Test-only synthetic alias and grandparent alias cases verify errors without creating a model destination; environments lacking Windows symlink privilege skip alias creation.
+- **Hard limitation:** this parent preflight still performs path-based observations before opening the final file and therefore does NOT atomically pin parent handles or defeat hostile concurrent rename/substitution. Python CLI and model destination directory traversal remain distinct security-review items. Treat source-root/manifest lock threats and retained orphan recovery as unresolved [Issue #61](https://github.com/nalkarowndal/tyrfghx/issues/61) until reviewed. Do not infer auto-trusted source provenance.
+
 ## Required current-branch evidence
 
 - [ ] PR-triggered exact-SHA 4/4 frontend/Node, Linux Python, Windows Python and Windows Rust CI success.
