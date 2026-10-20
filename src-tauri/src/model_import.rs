@@ -164,6 +164,11 @@ impl Drop for ManifestWriteGuard {
 }
 
 fn validate_existing_manifest(root: &Path) -> Result<(), String> {
+    // A concurrent cooperating writer may be in the middle of an atomic
+    // manifest replacement on Windows. Serialize the *preflight read* with
+    // the same Rust/Python guard used for actual record_snapshot writes.
+    // Release this guard before copying the source and reacquire at commit.
+    let _read_guard = ManifestWriteGuard::acquire(root)?;
     let path = root.join("integrity.json");
     if path.is_symlink() {
         return Err("Unsafe manifest symlink".into());
@@ -512,7 +517,10 @@ mod tests {
             }));
         }
         for thread in threads {
-            assert!(thread.join().unwrap().is_ok());
+            // Preserve the exact error from a losing writer rather than a
+            // generic assertion so a real concurrency regression is visible.
+            thread.join().expect("synthetic import thread panicked")
+                .expect("synthetic concurrent import failed");
         }
         let text = fs::read_to_string(root.join("integrity.json")).unwrap();
         let manifest: serde_json::Value = serde_json::from_str(&text).unwrap();
