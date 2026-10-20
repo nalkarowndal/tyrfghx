@@ -40,6 +40,19 @@ jobs:
           $env:AIIMAGE_TEST_BACKEND = Join-Path $PWD 'src-tauri/backend-dist/aiimage-backend/aiimage-backend.exe'
           python -m unittest discover -s backend -p test_bundled_server.py -v
           if ($LASTEXITCODE -ne 0) { throw 'frozen_backend_smoke_failed' }
+      # The following Rust --lib suite includes a real Python 3.12 child
+      # importing model_integrity (Pydantic). The frozen sidecar bundles its
+      # own dependencies and does not satisfy the *host* Python test process.
+      # This setup runs ONLY in an ephemeral Actions runner after frozen
+      # executable validation; it does not install packages on user machines.
+      - name: Install host Python test dependencies for native Rust cross-language QA
+        shell: pwsh
+        run: |
+          python -m pip install -r backend/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'host_python_test_requirements_failed' }
+          python -c "import pydantic; from model_integrity import IntegrityEntry" 
+        env:
+          PYTHONPATH: backend
       - name: Test real Rust manager against the frozen backend
         shell: pwsh
         run: |
