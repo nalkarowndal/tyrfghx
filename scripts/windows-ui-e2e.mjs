@@ -67,9 +67,25 @@ export function safeWebDriverErrorCode(code) {
   return typeof code === "string" && WEB_DRIVER_CODES.has(code)
     ? code : "protocol_error";
 }
-export function describeNativeSessionProblem(code) {
+// The external Windows driver may include filesystem paths, process logs or
+// private prompts in WebDriver's `message`. NEVER echo those bytes to CI logs.
+// Reduce well-known attach failures to closed, bounded categories instead.
+export function safeNativeSessionCause(raw) {
+  if (typeof raw !== "string") return "unclassified";
+  const msg = raw.toLowerCase();
+  if (msg.includes("no msedge binary") || msg.includes("cannot find msedge")) return "edge_binary_not_found";
+  if (msg.includes("only supports microsoft edge version")
+      || msg.includes("this version of msedgedriver")
+      || msg.includes("browser version mismatch")) return "edge_driver_version_mismatch";
+  if (msg.includes("devtoolsactiveport") || msg.includes("webview2 attach")
+      || msg.includes("failed to connect to browser")) return "webview2_attach_failed";
+  if (msg.includes("timed out") || msg.includes("timeout")) return "driver_timeout";
+  return "unclassified";
+}
+export function describeNativeSessionProblem(code, message) {
   if (code === "session not created") {
-    return "native_session_not_created: inspect isolated release startup probe and WebView2 attach";
+    return "native_session_not_created: inspect isolated release startup probe and WebView2 attach; cause="
+      + safeNativeSessionCause(message);
   }
   return `webdriver_${safeWebDriverErrorCode(code).replaceAll(" ", "_")}`;
 }
@@ -103,7 +119,7 @@ export async function requestWebDriver(base, method, route, body, timeoutMillis 
   if (!response.ok || payload?.value?.error) {
     const code = safeWebDriverErrorCode(payload?.value?.error);
     throw new Error(category === "session" && code === "session not created"
-      ? "WebDriver session rejected: " + describeNativeSessionProblem(code)
+      ? "WebDriver session rejected: " + describeNativeSessionProblem(code, payload?.value?.message)
       : `WebDriver ${category} rejected request: ${code}`);
   }
   return payload.value;
