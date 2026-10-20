@@ -188,6 +188,47 @@ fn validate_existing_manifest(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+// On Windows, another legitimate process can briefly hold integrity.json
+// without FILE_SHARE_DELETE, causing ReplaceFile/rename ERROR_ACCESS_DENIED.
+// Retry ONLY this atomic publish and ONLY transient Win32 5/32/33, while the
+// cooperating cross-process writer lock is still held by record_snapshot.
+// The original staged file is returned by PersistError on failure. Never
+// unlink/truncate integrity.json and never bypass manifest schema checks.
+// A permanent lock/ACL denial fails closed and retains the published model
+// copy as an untrusted orphan. This is NOT a hostile-filesystem defense.
+fn publish_manifest(staged: tempfile::NamedTempFile, manifest: &Path) -> Result<(), String> {
+    let mut staged = staged;
+    for attempt in 0..=12 {
+        match staged.persist(manifest) {
+            Ok(_published) => return Ok(()),
+            Err(failed) => {
+                let error = failed.error;
+                staged = failed.file;
+                #[cfg(windows)]
+                if matches!(error.raw_os_error(), Some(5 | 32 | 33)) && attempt < 12 {
+                    use std::os::windows::fs::MetadataExt;
+                    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+                    // An unexpected symlink/reparse or unreadable existing
+                    // manifest is not a transient sharing lock; reject it.
+                    match fs::symlink_metadata(manifest) {
+                        Ok(meta) if meta.is_file()
+                            && meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 => {}
+                        Ok(_) => return Err("Unsafe integrity manifest during publish".into()),
+                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(err) => return Err(format!("Integrity manifest unavailable: {err}")),
+                    }
+                    thread::sleep(Duration::from_millis(25));
+                    continue;
+                }
+                #[cfg(not(windows))]
+                let _ = attempt;
+                return Err(format!("Integrity manifest atomic publish failed: {error}"));
+            }
+        }
+    }
+    unreachable!("bounded manifest publisher must return a result")
+}
+
 fn record_snapshot(root: &Path, id: &str, hash: &str, size: u64, mtime: u64) -> Result<(), String> {
     let _write_guard = ManifestWriteGuard::acquire(root)?;
     let manifest = root.join("integrity.json");
@@ -223,7 +264,7 @@ fn record_snapshot(root: &Path, id: &str, hash: &str, size: u64, mtime: u64) -> 
         .map_err(|e| e.to_string())?;
     staged.write_all(&payload).map_err(|e| e.to_string())?;
     staged.as_file().sync_all().map_err(|e| e.to_string())?;
-    staged.persist(&manifest).map_err(|e| e.error.to_string())?;
+    publish_manifest(staged, &manifest)?;
     Ok(())
 }
 
@@ -497,6 +538,57 @@ mod tests {
             Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {}
             Err(error) => panic!("unexpected synthetic directory-link test error: {error}"),
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_manifest_publish_retries_transient_nonsharedelete_reader() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("models");
+        fs::create_dir(&root).unwrap();
+        record_snapshot(&root, "loras/first.safetensors", &"a".repeat(64), 10, 1).unwrap();
+        let manifest = root.join("integrity.json");
+        // FILE_SHARE_READ (but NOT FILE_SHARE_DELETE) deliberately blocks
+        // replacing the manifest while the reader is alive.
+        let held = fs::OpenOptions::new().read(true).share_mode(0x1)
+            .open(&manifest).unwrap();
+        let closer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            drop(held);
+        });
+        let outcome = record_snapshot(&root, "loras/second.safetensors", &"b".repeat(64), 11, 2);
+        closer.join().unwrap();
+        outcome.expect("short-lived Windows no-delete-share reader must be retried");
+        let data: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        assert_eq!(data["models"].as_object().unwrap().len(), 2);
+        assert_eq!(data["models"]["loras/first.safetensors"]["sha256"], "a".repeat(64));
+        assert_eq!(data["models"]["loras/second.safetensors"]["sha256"], "b".repeat(64));
+        assert!(!root.join(".integrity-write.lockdir").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_manifest_publish_permanent_reader_fails_closed_without_truncation() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("models");
+        fs::create_dir(&root).unwrap();
+        record_snapshot(&root, "loras/first.safetensors", &"a".repeat(64), 10, 1).unwrap();
+        let manifest = root.join("integrity.json");
+        let original = fs::read(&manifest).unwrap();
+        let held = fs::OpenOptions::new().read(true).share_mode(0x1)
+            .open(&manifest).unwrap();
+        let denied = record_snapshot(&root, "loras/second.safetensors", &"b".repeat(64), 11, 2);
+        assert!(denied.is_err(), "permanent file sharing block must not be bypassed");
+        assert_eq!(fs::read(&manifest).unwrap(), original);
+        assert!(!root.join(".integrity-write.lockdir").exists());
+        drop(held);
+        record_snapshot(&root, "loras/second.safetensors", &"b".repeat(64), 11, 2).unwrap();
+        let result: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        assert_eq!(result["models"].as_object().unwrap().len(), 2);
     }
 
     #[test]
