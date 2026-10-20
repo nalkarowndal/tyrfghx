@@ -5,7 +5,7 @@ import { readFile, rm } from "node:fs/promises";
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { runWindowsUiSmoke, requestWebDriver, waitForDriver, allocateDriverPorts, safeWebDriverErrorCode, describeNativeSessionProblem, isExpectedReleaseApp } from "./windows-ui-e2e.mjs";
+import { runWindowsUiSmoke, requestWebDriver, waitForDriver, allocateDriverPorts, safeWebDriverErrorCode, safeNativeSessionCause, describeNativeSessionProblem, isExpectedReleaseApp } from "./windows-ui-e2e.mjs";
 
 const ELEMENT = "element-6066-11e4-a52e-4f735466cecf";
 const makeResponse = (reply, status = 200) => ({
@@ -354,5 +354,27 @@ test("M3-37: catalog fault fixture cannot be used by external driver mode", asyn
   } finally {
     await rm(marker, { force: true });
     await server.close();
+  }
+});
+
+
+test("M4-Integration: external native attach failure reports safe categories only", () => {
+  const cases = [
+    ["unknown error: no msedge binary at C:\\Users\\Private\\bin\\secret.exe", "edge_binary_not_found"],
+    ["This version of msedgedriver only supports Microsoft Edge version 154; driver path C:\\Private", "edge_driver_version_mismatch"],
+    ["DevToolsActivePort file doesn't exist /Users/private", "webview2_attach_failed"],
+    ["failed to connect to browser: C:\\Private\\models", "webview2_attach_failed"],
+    ["operation timed out waiting for app at C:\\Users\\Private\\models", "driver_timeout"],
+    ["C:\\Users\\Private\\models\\secret.safetensors", "unclassified"],
+    [undefined, "unclassified"],
+  ];
+  for (const [message, expected] of cases) {
+    assert.equal(safeNativeSessionCause(message), expected);
+    const output = describeNativeSessionProblem("session not created", message);
+    assert(output.includes("cause=" + expected));
+    assert(!output.includes("Private"));
+    assert(!output.includes("secret"));
+    assert(!output.includes("C:"));
+    assert(output.length < 180);
   }
 });
